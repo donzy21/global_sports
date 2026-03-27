@@ -208,6 +208,7 @@ function closeCheckout() {
   document.getElementById('checkoutOverlay').classList.remove('open');
 }
 
+// FIX: cart is snapshotted before anything closes so it's available in callback
 function processPayment() {
   const name    = document.getElementById('custName').value.trim();
   const email   = document.getElementById('custEmail').value.trim();
@@ -223,19 +224,19 @@ function processPayment() {
     return;
   }
 
-  const customer = { name, email, phone, address };
-  const total    = cart.reduce((a, b) => a + b.price, 0);
-
-  closeCheckout();
-  toggleCart(); // close cart sidebar
+  const customer     = { name, email, phone, address };
+  const total        = cart.reduce((a, b) => a + b.price, 0);
+  const cartSnapshot = [...cart]; // FIX: snapshot cart BEFORE closing anything
 
   const handler = PaystackPop.setup({
     key:      PAYSTACK_PUBLIC_KEY,
     email:    customer.email,
     amount:   Math.round(total * 100), // pesewas
     currency: 'GHS',
+    ref:      'GS_' + Date.now(), // FIX: unique ref ensures callback fires after OTP
     callback: function(res) {
-      verifyPayment(res.reference, customer);
+      closeCheckout(); // FIX: close modal AFTER payment, not before
+      verifyPayment(res.reference, customer, cartSnapshot);
     },
     onClose: function() {
       showToast('Payment cancelled', 'error');
@@ -245,14 +246,14 @@ function processPayment() {
   handler.openIframe();
 }
 
-async function verifyPayment(reference, customer) {
+// FIX: accepts cartSnapshot so cart data is preserved even if cart state changes
+async function verifyPayment(reference, customer, cartSnapshot) {
   showToast('Verifying payment...');
   try {
-    // FIX: corrected endpoint from /api/verify → /api/orders/verify
     const res  = await fetch(`${API_URL}/orders/verify`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ reference, cart, customer })
+      body:    JSON.stringify({ reference, cart: cartSnapshot, customer })
     });
     const data = await res.json();
 
@@ -312,7 +313,6 @@ function adminLogout() {
 }
 
 // ===================== ADMIN — AUTH HEADER =====================
-// FIX: always send token in Authorization header for protected routes
 function authHeaders() {
   return {
     'Content-Type':  'application/json',
@@ -360,7 +360,7 @@ function renderAdminProductList(products) {
     </div>`).join('');
 }
 
-// ===================== ADMIN — ADD PRODUCT =====================
+// ===================== ADMIN — ADD/EDIT PRODUCT =====================
 async function submitProduct() {
   const name        = document.getElementById('productName').value.trim();
   const price       = parseFloat(document.getElementById('productPrice').value);
@@ -388,7 +388,7 @@ async function submitProduct() {
       showToast(isEditing ? 'Product updated!' : 'Product added!', 'success');
       resetProductForm();
       loadAdminProducts();
-      fetchProducts(); // also refresh shop
+      fetchProducts();
     } else if (res.status === 401) {
       showToast('Session expired. Please log in again.', 'error');
       adminLogout();
@@ -416,7 +416,6 @@ function startEditProduct(id) {
   document.getElementById('formSubmitBtn').textContent  = 'Save Changes';
   document.getElementById('formCancelBtn').style.display = '';
 
-  // Scroll to form
   document.getElementById('productName').scrollIntoView({ behavior: 'smooth', block: 'center' });
   document.getElementById('productName').focus();
 }
@@ -479,7 +478,7 @@ async function loadOrders() {
     }
 
     el.innerHTML = orders.map(o => {
-      const date     = new Date(o.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const date      = new Date(o.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
       const itemsHtml = (o.items || []).map(i => `<li>${escHtml(i.name)} — GHS ${Number(i.price).toFixed(2)}</li>`).join('');
       const statusClass = `status-${o.status || 'pending'}`;
 
