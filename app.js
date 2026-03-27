@@ -1,6 +1,6 @@
 // ===================== CONFIG =====================
 // FIX: Use your deployed backend URL in production. For local dev keep localhost.
-const API_URL = 'https://global-sports-backend.onrender.com';
+const API_URL = 'https://global-sports-backend.onrender.com/api';
 
 // FIX: Move Paystack public key out of hardcoded inline script.
 // Your public key is safe client-side; private key must ONLY be in .env on the server.
