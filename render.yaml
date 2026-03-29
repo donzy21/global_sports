@@ -1,0 +1,19 @@
+# Exported from Render on 2026-03-29T01:08:34Z
+version: "1"
+services:
+- type: web
+  name: Global_sports_backend
+  runtime: node
+  repo: https://github.com/donzy21/global_sports
+  plan: free
+  envVars:
+  - key: PAYSTACK_SECRET
+    sync: false
+  - key: MONGO_URI
+    sync: false
+  - key: JWT_SECRET
+    sync: false
+  region: oregon
+  buildCommand: npm install
+  startCommand: node server.js
+  autoDeployTrigger: commit
