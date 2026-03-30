@@ -134,7 +134,6 @@ const sizeDots     = hasSizes ? p.sizes.slice(0,5).map(function(s){ return '<spa
 const sizeMore     = hasSizes && p.sizes.length > 5 ? '<span class="size-dot">+' + (p.sizes.length - 5) + '</span>' : '';
 const sizesPreview = hasSizes ? '<div class="product-sizes-preview">' + sizeDots + sizeMore + '</div>' : '';
 
-```
 return `
   <div class="product-card" data-id="${p._id}">
     ${stockBadge}
@@ -153,7 +152,6 @@ return `
       </button>
     </div>
   </div>`;
-```
 
 }).join('');
 
@@ -223,7 +221,7 @@ selectedSize     = null;
 function addToCart(productId, size) {
 const product = allProducts.find(p => p._id === productId);
 if (!product) return;
-cart.push({ …product, selectedSize: size || null });
+cart.push({ ...product, selectedSize: size || null });
 updateCartUI();
 const sizeLabel = size ? ` (${size})` : '';
 showToast(`${product.name}${sizeLabel} added to cart`, 'success');
@@ -386,7 +384,7 @@ name, email, phone, address,
 location: selectedLocation || null
 };
 const total        = cart.reduce((a, b) => a + b.price, 0);
-const cartSnapshot = […cart];
+const cartSnapshot = [...cart];
 
 const handler = PaystackPop.setup({
 key:      PAYSTACK_PUBLIC_KEY,
@@ -527,7 +525,6 @@ html: '<div style="width:24px;height:24px;background:#3b82f6;border:3px solid #f
 iconSize: [24,24], iconAnchor: [12,12]
 });
 
-```
 if (!trackRiderMarker) {
   trackRiderMarker = L.marker([riderLoc.lat, riderLoc.lng], { icon: riderIcon })
     .addTo(trackMap)
@@ -551,7 +548,6 @@ drawRoute(riderLoc.lat, riderLoc.lng, custLoc.lat, custLoc.lng);
 const etaMinutes = estimateETA(riderLoc.lat, riderLoc.lng, custLoc.lat, custLoc.lng);
 document.getElementById('trackETA').innerHTML =
   `<span class="eta-label">Est. arrival</span><span class="eta-time">${etaMinutes} min</span>`;
-```
 
 } else {
 document.getElementById('trackETA').innerHTML =
@@ -1146,5 +1142,5 @@ return String(str)
 .replace(/</g, '<')
 .replace(/>/g, '>')
 .replace(/"/g, '"')
-.replace(/'/g, ''');
+.replace(/'/g, "'");
 }
