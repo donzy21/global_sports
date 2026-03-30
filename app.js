@@ -470,9 +470,12 @@ trackInterval = null;
 async function fetchTrackData(ref) {
 try {
 const res = await fetch(`${API_URL}/track/${ref}`);
-if (!res.ok) return null;
+if (!res.ok) {
+  console.error('Track API error', res.status, await res.text());
+  return null;
+}
 return await res.json();
-} catch { return null; }
+} catch (err) { console.error('Track API network error', err); return null; }
 }
 
 function renderTrackResult(data) {
@@ -571,15 +574,11 @@ try {
 const url = `https://router.project-osrm.org/route/v1/driving/${riderLng},${riderLat};${custLng},${custLat}?overview=full&geometries=geojson`;
 const res  = await fetch(url);
 const data = await res.json();
-
-```
 if (data.routes && data.routes[0]) {
   trackRouteLayer = L.geoJSON(data.routes[0].geometry, {
     style: { color: '#3b82f6', weight: 4, opacity: 0.7, dashArray: '8,4' }
   }).addTo(trackMap);
 }
-```
-
 } catch {
 // If routing fails just draw a straight line
 trackRouteLayer = L.polyline(
@@ -957,7 +956,8 @@ const el = document.getElementById(`ro-${orderId}`);
 if (el) el.remove();
 });
 
-riderSSE.onerror = () => {
+riderSSE.onerror = (e) => {
+console.warn('Rider SSE connection error', e);
 // Reconnect after 5 seconds if connection drops
 setTimeout(() => { if (riderToken) connectRiderSSE(); }, 5000);
 };
@@ -979,11 +979,18 @@ async function loadAvailableOrders() {
 const el = document.getElementById('availableOrdersList');
 el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders…</p>';
 try {
-const res    = await fetch(`${API_URL}/riders/orders/available`, { headers: riderAuthHeaders() });
+const res = await fetch(`${API_URL}/riders/orders/available`, { headers: riderAuthHeaders() });
+if (!res.ok) {
+  const errText = await res.text();
+  console.error('Rider available orders error', res.status, errText);
+  if (res.status === 401) {
+    el.innerHTML = '<p style="color:var(--red)">Unauthorized. Please login as rider.</p>';
+    return;
+  }
+  el.innerHTML = `<p style="color:var(--red)">Error loading orders (status ${res.status}).</p>`;
+  return;
+}
 const orders = await res.json();
-if (!res.ok) { el.innerHTML = '<p style="color:var(--red)">Error loading orders.</p>'; return; }
-
-```
 const visible = orders.filter(o => !dismissedOrders.has(o._id));
 document.getElementById('availableCount').textContent = visible.length;
 
@@ -992,7 +999,6 @@ if (!visible.length) {
   return;
 }
 el.innerHTML = visible.map(o => renderRiderOrderCard(o, true)).join('');
-```
 
 } catch {
 el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
@@ -1003,13 +1009,25 @@ async function loadMyOrders() {
 const el = document.getElementById('myOrdersList');
 el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading your deliveries…</p>';
 try {
-const res    = await fetch(`${API_URL}/riders/orders/mine`, { headers: riderAuthHeaders() });
+const res = await fetch(`${API_URL}/riders/orders/mine`, { headers: riderAuthHeaders() });
+if (!res.ok) {
+  const errText = await res.text();
+  console.error('Rider my orders error', res.status, errText);
+  if (res.status === 401) {
+    el.innerHTML = '<p style="color:var(--red)">Unauthorized. Please login as rider.</p>';
+    return;
+  }
+  el.innerHTML = `<p style="color:var(--red)">Error loading your orders (status ${res.status}).</p>`;
+  return;
+}
 const orders = await res.json();
 if (!orders.length) {
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:60px 0">No deliveries yet.</p>'; return;
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:60px 0">No deliveries yet.</p>';
+return;
 }
 el.innerHTML = orders.map(o => renderRiderOrderCard(o, false)).join('');
-} catch {
+} catch (err) {
+console.error('Network error loading my orders', err);
 el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
 }
 }
@@ -1095,8 +1113,6 @@ const map = L.map('riderOrderMap').setView([lat, lng], 15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 attribution: '© OpenStreetMap contributors', maxZoom: 19
 }).addTo(map);
-
-```
 const greenIcon = L.divIcon({
   className: '',
   html: '<div style="width:20px;height:20px;background:#b5f13b;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>',
@@ -1106,7 +1122,6 @@ L.marker([lat, lng], { icon: greenIcon })
   .addTo(map)
   .bindPopup(address || 'Delivery location')
   .openPopup();
-```
 
 }, 200);
 }
