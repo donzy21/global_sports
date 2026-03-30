@@ -785,3 +785,571 @@ nav { display: flex; align-items: center; gap: 8px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #444; }
+/* ===== PASTE THIS AT THE BOTTOM OF YOUR EXISTING style.css ===== */
+
+/* ===================== AUTH TABS ===================== */
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.auth-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-muted);
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-bottom: -1px;
+}
+.auth-tab:hover { color: var(--text); }
+.auth-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.info-msg { color: var(--accent); font-size: 13px; margin-bottom: 12px; }
+
+/* ===================== RIDER DASHBOARD HEADER ===================== */
+.rider-dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.rider-welcome {
+  font-family: var(--font-display);
+  font-size: 28px;
+  letter-spacing: 1px;
+}
+.rider-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ===================== AVAILABILITY TOGGLE ===================== */
+.availability-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  cursor: pointer;
+}
+.toggle-switch input { display: none; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 99px;
+  transition: var(--transition);
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px; height: 20px;
+  left: 3px; top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: var(--transition);
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
+
+/* ===================== LOGOUT BTN ===================== */
+.logout-btn {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.logout-btn:hover { background: var(--red); color: #fff; }
+
+/* ===================== NEW ORDER BANNER ===================== */
+.new-order-banner {
+  background: rgba(181,241,59,0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 500;
+  animation: pulse-border 1.5s ease-in-out infinite;
+}
+@keyframes pulse-border {
+  0%,100% { box-shadow: 0 0 0 0 rgba(181,241,59,0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(181,241,59,0); }
+}
+.new-order-banner button {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ===================== RIDER ORDER CARD ===================== */
+.rider-order-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 12px;
+  transition: var(--transition);
+}
+.rider-order-card:hover { border-color: #333; }
+.rider-order-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.rider-order-amount {
+  font-family: var(--font-display);
+  font-size: 24px;
+  color: var(--accent);
+}
+.rider-order-items {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+.rider-order-items li { margin-left: 16px; margin-top: 3px; }
+.rider-order-footer {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.accept-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 9px 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.accept-btn:hover { background: var(--accent-dk); }
+.reject-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 9px 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.reject-btn:hover { border-color: var(--red); color: var(--red); }
+.view-map-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.view-map-btn:hover { border-color: var(--accent); color: var(--accent); }
+.delivered-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 9px 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.delivered-btn:hover { background: #059669; }
+
+/* ===================== RIDERS LIST (ADMIN) ===================== */
+.riders-list { display: flex; flex-direction: column; gap: 12px; }
+.rider-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  transition: var(--transition);
+}
+.rider-card:hover { border-color: #333; }
+.rider-avatar {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+.rider-card-info { flex: 1; min-width: 200px; }
+.rider-card-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.rider-card-meta { font-size: 12px; color: var(--text-muted); line-height: 1.8; }
+.rider-card-meta span { display: block; }
+.rider-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.approve-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.approve-btn:hover { background: var(--accent-dk); }
+.reject-rider-btn {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.reject-rider-btn:hover { background: var(--red); color: #fff; }
+.view-docs-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.view-docs-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ===================== GOOGLE MAPS PICKER ===================== */
+.map-picker {
+  width: 100%;
+  height: 220px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-top: 10px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+.location-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.location-btn:hover { border-color: var(--accent); color: var(--accent); }
+.location-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  text-align: center;
+}
+.location-set { color: var(--accent) !important; }
+
+/* ===================== RIDER MODAL ACTIONS ===================== */
+.rider-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* ===================== STATUS BADGES (extra) ===================== */
+.status-assigned  { background: rgba(59,130,246,0.12); color: #3b82f6; border: 1px solid rgba(59,130,246,0.3); }
+.status-delivered { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.status-approved  { background: rgba(181,241,59,0.15); color: var(--accent); border: 1px solid rgba(181,241,59,0.3); }
+.status-rejected  { background: rgba(255,77,77,0.12); color: var(--red); border: 1px solid rgba(255,77,77,0.3); }
+.status-pending   { background: rgba(255,180,0,0.12); color: #ffb400; border: 1px solid rgba(255,180,0,0.3); }
+
+/* ===================== RESPONSIVE ===================== */
+@media (max-width: 640px) {
+  .rider-dash-header { flex-direction: column; }
+  .rider-controls { flex-wrap: wrap; }
+}
+
+/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css (after the rider additions) ===== */
+
+/* ===================== SIZE PREVIEW ON PRODUCT CARD ===================== */
+.product-sizes-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.size-dot {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+/* ===================== SIZE PICKER MODAL ===================== */
+.size-modal {
+  max-width: 480px;
+}
+.size-product-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 20px;
+}
+.size-product-preview img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.size-product-img-placeholder {
+  width: 60px;
+  height: 60px;
+  background: var(--border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.size-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.size-option {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  min-width: 52px;
+  text-align: center;
+}
+.size-option:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.size-option.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.size-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  text-align: center;
+}
+.size-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ===================== CART ITEM SIZE ===================== */
+.cart-item-size {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css ===== */
+
+/* Make checkout modal scrollable on small screens */
+.checkout-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css ===== */
+
+/* ===================== TRACK ORDER ===================== */
+.track-wrapper {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 0 24px 60px;
+}
+.track-search-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 36px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+.track-search-card h2 {
+  font-family: var(--font-display);
+  font-size: 32px;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.track-input-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.track-input-row input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--font-body);
+}
+.track-input-row input:focus { border-color: var(--accent); outline: none; }
+.track-go-btn { width: auto; padding: 12px 28px; }
+
+/* Status card */
+.track-status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.track-status-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.track-ref-label { font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.track-ref-value { font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; color: var(--accent); }
+.track-status-badge {
+  padding: 6px 16px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.track-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.track-info-item {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.track-info-item span { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.track-info-item strong { font-size: 14px; color: var(--text); }
+
+/* Map card */
+.track-map-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.track-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.track-map-header h3 { font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; }
+.track-map { width: 100%; height: 360px; }
+.track-legend {
+  display: flex;
+  gap: 20px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.legend-dot {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.legend-dot.rider    { background: #3b82f6; }
+.legend-dot.customer { background: #b5f13b; }
+
+/* ETA */
+.track-eta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.eta-label { font-size: 11px; color: var(--text-muted); }
+.eta-time  { font-family: var(--font-display); font-size: 28px; color: var(--accent); letter-spacing: 1px; }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .track-info-grid { grid-template-columns: 1fr; }
+  .track-input-row { flex-direction: column; }
+  .track-go-btn { width: 100%; }
+  .track-map { height: 260px; }
+}

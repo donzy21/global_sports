@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -6,9 +7,16 @@
   <title>Global Sports — Elite Apparel</title>
 
   <!-- Paystack -->
+
   <script src="https://js.paystack.co/v1/inline.js"></script>
 
+  <!-- Leaflet — free OpenStreetMap (no API key needed) -->
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
   <!-- Fonts: Bebas Neue (display) + DM Sans (body) -->
+
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css">
@@ -16,6 +24,7 @@
 <body>
 
 <!-- ======== LOADER ======== -->
+
 <div id="loader">
   <div class="loader-inner">
     <span class="loader-logo">GS</span>
@@ -24,6 +33,7 @@
 </div>
 
 <!-- ======== HEADER ======== -->
+
 <header id="mainHeader">
   <div class="header-inner">
     <div class="logo">
@@ -35,8 +45,11 @@
     </div>
     <nav>
       <button class="nav-btn active" id="navShop" onclick="showSection('shop')">Shop</button>
+      <button class="nav-btn" id="navTrack" onclick="showSection('track')">Track Order</button>
       <button class="nav-btn" id="navAdmin" onclick="showAdminOrLogin()" style="display:none">Dashboard</button>
+      <button class="nav-btn" id="navRiderDash" onclick="showSection('riderDash')" style="display:none">Rider Dashboard</button>
       <button class="nav-btn admin-login-btn" id="navLogin" onclick="showSection('login')">Admin</button>
+      <button class="nav-btn admin-login-btn" id="navRiderLogin" onclick="showSection('riderLogin')">Rider</button>
       <button class="nav-btn cart-btn" onclick="toggleCart()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
         Cart <span class="badge" id="cartCount">0</span>
@@ -46,6 +59,7 @@
 </header>
 
 <!-- ======== CART SIDEBAR ======== -->
+
 <div class="cart-overlay" id="cartOverlay" onclick="toggleCart()"></div>
 <aside class="cart-sidebar" id="cartSidebar">
   <div class="cart-header">
@@ -60,6 +74,7 @@
 </aside>
 
 <!-- ======== SHOP SECTION ======== -->
+
 <section id="shopSection" class="section active">
   <div class="shop-hero">
     <p class="hero-eyebrow">New arrivals · 2026</p>
@@ -78,7 +93,6 @@
   </div>
 
   <div class="products-grid" id="productsGrid">
-    <!-- Products injected here -->
     <div class="skeleton-card"></div>
     <div class="skeleton-card"></div>
     <div class="skeleton-card"></div>
@@ -86,7 +100,54 @@
   </div>
 </section>
 
+<!-- ======== TRACK ORDER SECTION ======== -->
+
+<section id="trackSection" class="section">
+  <div class="track-wrapper">
+    <div class="track-search-card">
+      <h2>Track Your Order</h2>
+      <p class="auth-sub">Enter your order reference to see live delivery status</p>
+      <div class="track-input-row">
+        <input id="trackRef" type="text" placeholder="e.g. GS_1234567890" autocomplete="off">
+        <button class="submit-btn track-go-btn" onclick="trackOrder()">Track</button>
+      </div>
+      <p class="error-msg" id="trackError"></p>
+    </div>
+
+```
+<!-- Tracking Result -->
+<div id="trackResult" style="display:none">
+  <div class="track-status-card" id="trackStatusCard">
+    <div class="track-status-top">
+      <div>
+        <div class="track-ref-label">Order Reference</div>
+        <div class="track-ref-value" id="trackRefDisplay"></div>
+      </div>
+      <div class="track-status-badge" id="trackStatusBadge"></div>
+    </div>
+    <div class="track-info-grid" id="trackInfoGrid"></div>
+  </div>
+
+  <!-- Live Map -->
+  <div class="track-map-card">
+    <div class="track-map-header">
+      <h3>Live Delivery Map</h3>
+      <div class="track-eta" id="trackETA"></div>
+    </div>
+    <div id="trackMap" class="track-map"></div>
+    <div class="track-legend">
+      <span><span class="legend-dot rider"></span> Rider</span>
+      <span><span class="legend-dot customer"></span> You</span>
+    </div>
+  </div>
+</div>
+```
+
+  </div>
+</section>
+
 <!-- ======== ADMIN LOGIN ======== -->
+
 <section id="loginSection" class="section">
   <div class="auth-card">
     <h2>Admin Login</h2>
@@ -105,87 +166,238 @@
 </section>
 
 <!-- ======== ADMIN DASHBOARD ======== -->
+
 <section id="adminSection" class="section">
   <div class="dashboard">
-
-    <!-- Tabs -->
     <div class="dash-tabs">
       <button class="dash-tab active" onclick="switchDashTab('products', this)">Products</button>
       <button class="dash-tab" onclick="switchDashTab('orders', this)">Orders</button>
+      <button class="dash-tab" onclick="switchDashTab('riders', this)">Riders</button>
     </div>
 
-    <!-- Products Tab -->
-    <div id="dashProducts" class="dash-panel active">
-      <div class="dash-split">
-
-        <!-- Add / Edit Form -->
-        <div class="product-form-card">
-          <h3 id="formTitle">Add New Product</h3>
-          <input type="hidden" id="editProductId">
-          <div class="form-group">
-            <label>Product Name *</label>
-            <input id="productName" type="text" placeholder="e.g. Nike Air Zoom">
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Price (GHS) *</label>
-              <input id="productPrice" type="number" placeholder="0.00" min="0" step="0.01">
-            </div>
-            <div class="form-group">
-              <label>Stock *</label>
-              <input id="productStock" type="number" placeholder="0" min="0">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Category *</label>
-            <select id="productCategory">
-              <option value="">Select category</option>
-              <option value="Football">Football</option>
-              <option value="Running">Running</option>
-              <option value="Gym">Gym</option>
-              <option value="Boxing">Boxing</option>
-              <option value="Yoga">Yoga</option>
-              <option value="Accessories">Accessories</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Description</label>
-            <input id="productDescription" type="text" placeholder="Short description">
-          </div>
-          <div class="form-group">
-            <label>Image URL</label>
-            <input id="productImage" type="url" placeholder="https://...">
-          </div>
-          <div class="form-actions">
-            <button class="submit-btn" id="formSubmitBtn" onclick="submitProduct()">Add Product</button>
-            <button class="cancel-btn" id="formCancelBtn" onclick="resetProductForm()" style="display:none">Cancel Edit</button>
-          </div>
+```
+<!-- Products Tab -->
+<div id="dashProducts" class="dash-panel active">
+  <div class="dash-split">
+    <div class="product-form-card">
+      <h3 id="formTitle">Add New Product</h3>
+      <input type="hidden" id="editProductId">
+      <div class="form-group">
+        <label>Product Name *</label>
+        <input id="productName" type="text" placeholder="e.g. Nike Air Zoom">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Price (GHS) *</label>
+          <input id="productPrice" type="number" placeholder="0.00" min="0" step="0.01">
         </div>
-
-        <!-- Product List -->
-        <div class="product-list-panel">
-          <h3>All Products <span class="count-badge" id="productCount">0</span></h3>
-          <div id="adminProductList" class="admin-product-list"></div>
+        <div class="form-group">
+          <label>Stock *</label>
+          <input id="productStock" type="number" placeholder="0" min="0">
         </div>
-
+      </div>
+      <div class="form-group">
+        <label>Category *</label>
+        <select id="productCategory">
+          <option value="">Select category</option>
+          <option value="Football">Football</option>
+          <option value="Running">Running</option>
+          <option value="Gym">Gym</option>
+          <option value="Boxing">Boxing</option>
+          <option value="Yoga">Yoga</option>
+          <option value="Accessories">Accessories</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input id="productDescription" type="text" placeholder="Short description">
+      </div>
+      <div class="form-group">
+        <label>Image URL</label>
+        <input id="productImage" type="url" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label>Size Type</label>
+        <select id="productSizeType" onchange="handleSizeTypeChange(this.value)">
+          <option value="none">No sizes (e.g. bags, accessories)</option>
+          <option value="clothing">Clothing (S, M, L, XL, XXL)</option>
+          <option value="footwear">Footwear (36–45)</option>
+          <option value="custom">Custom sizes</option>
+        </select>
+      </div>
+      <div class="form-group" id="customSizesGroup" style="display:none">
+        <label>Custom Sizes <span style="font-weight:300;font-size:11px">(comma separated)</span></label>
+        <input id="productCustomSizes" type="text" placeholder="e.g. 28, 30, 32, 34">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" id="formSubmitBtn" onclick="submitProduct()">Add Product</button>
+        <button class="cancel-btn" id="formCancelBtn" onclick="resetProductForm()" style="display:none">Cancel Edit</button>
       </div>
     </div>
-
-    <!-- Orders Tab -->
-    <div id="dashOrders" class="dash-panel">
-      <div class="orders-header">
-        <h3>All Orders</h3>
-        <button class="refresh-btn" onclick="loadOrders()">↻ Refresh</button>
-      </div>
-      <div id="ordersList" class="orders-list"></div>
+    <div class="product-list-panel">
+      <h3>All Products <span class="count-badge" id="productCount">0</span></h3>
+      <div id="adminProductList" class="admin-product-list"></div>
     </div>
+  </div>
+</div>
+
+<!-- Orders Tab -->
+<div id="dashOrders" class="dash-panel">
+  <div class="orders-header">
+    <h3>All Orders</h3>
+    <button class="refresh-btn" onclick="loadOrders()">↻ Refresh</button>
+  </div>
+  <div id="ordersList" class="orders-list"></div>
+</div>
+
+<!-- Riders Tab -->
+<div id="dashRiders" class="dash-panel">
+  <div class="orders-header">
+    <h3>Rider Applications</h3>
+    <button class="refresh-btn" onclick="loadAdminRiders()">↻ Refresh</button>
+  </div>
+  <div id="ridersList" class="riders-list"></div>
+</div>
+```
 
   </div>
 </section>
 
+<!-- ======== RIDER LOGIN ======== -->
+
+<section id="riderLoginSection" class="section">
+  <div class="auth-card">
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('riderLoginForm', this)">Login</button>
+      <button class="auth-tab" onclick="switchAuthTab('riderRegisterForm', this)">Register</button>
+    </div>
+
+```
+<!-- Login Form -->
+<div id="riderLoginForm">
+  <h2>Rider Login</h2>
+  <p class="auth-sub">Access your delivery dashboard</p>
+  <div class="form-group">
+    <label>Phone Number</label>
+    <input id="riderLoginPhone" type="tel" placeholder="0244 000 000">
+  </div>
+  <div class="form-group">
+    <label>Password</label>
+    <input id="riderLoginPassword" type="password" placeholder="Enter password">
+  </div>
+  <p class="error-msg" id="riderLoginError"></p>
+  <button class="submit-btn" onclick="riderLogin()">Sign In</button>
+</div>
+
+<!-- Register Form -->
+<div id="riderRegisterForm" style="display:none">
+  <h2>Become a Rider</h2>
+  <p class="auth-sub">Join Global Sports delivery network</p>
+  <div class="form-group">
+    <label>Full Name *</label>
+    <input id="riderRegName" type="text" placeholder="John Mensah">
+  </div>
+  <div class="form-group">
+    <label>Phone Number *</label>
+    <input id="riderRegPhone" type="tel" placeholder="0244 000 000">
+  </div>
+  <div class="form-group">
+    <label>Password *</label>
+    <input id="riderRegPassword" type="password" placeholder="Create a password">
+  </div>
+  <div class="form-group">
+    <label>Ghana Card ID *</label>
+    <input id="riderRegGhanaCard" type="text" placeholder="GHA-XXXXXXXXX-X">
+  </div>
+  <div class="form-group">
+    <label>Vehicle License ID *</label>
+    <input id="riderRegLicense" type="text" placeholder="Vehicle license number">
+  </div>
+  <div class="form-group">
+  <p class="error-msg" id="riderRegError"></p>
+  <p class="info-msg" id="riderRegSuccess"></p>
+  <button class="submit-btn" onclick="riderRegister()">Submit Application</button>
+</div>
+```
+
+  </div>
+</section>
+
+<!-- ======== RIDER DASHBOARD ======== -->
+
+<section id="riderDashSection" class="section">
+  <div class="dashboard">
+    <div class="rider-dash-header">
+      <div>
+        <h2 class="rider-welcome" id="riderWelcome">Welcome, Rider</h2>
+        <p class="auth-sub">Your delivery dashboard</p>
+      </div>
+      <div class="rider-controls">
+        <div class="availability-toggle">
+          <span>Available</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="availabilityToggle" checked onchange="toggleAvailability(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <button class="logout-btn" onclick="riderLogout()">Logout</button>
+      </div>
+    </div>
+
+```
+<div class="dash-tabs">
+  <button class="dash-tab active" onclick="switchRiderTab('available', this)">Available Orders</button>
+  <button class="dash-tab" onclick="switchRiderTab('mine', this)">My Deliveries</button>
+</div>
+
+<!-- Available Orders -->
+<div id="riderAvailable" class="dash-panel active">
+  <div class="orders-header">
+    <h3>Available Orders <span class="count-badge" id="availableCount">0</span></h3>
+    <button class="refresh-btn" onclick="loadAvailableOrders()">↻ Refresh</button>
+  </div>
+  <!-- New order notification banner -->
+  <div class="new-order-banner" id="newOrderBanner" style="display:none">
+    🔔 New order available! <button onclick="loadAvailableOrders(); hideNewOrderBanner()">View now</button>
+  </div>
+  <div id="availableOrdersList" class="orders-list"></div>
+</div>
+
+<!-- My Deliveries -->
+<div id="riderMine" class="dash-panel">
+  <div class="orders-header">
+    <h3>My Deliveries</h3>
+    <button class="refresh-btn" onclick="loadMyOrders()">↻ Refresh</button>
+  </div>
+  <div id="myOrdersList" class="orders-list"></div>
+</div>
+```
+
+  </div>
+</section>
+
+<!-- ======== SIZE PICKER MODAL ======== -->
+
+<div class="modal-overlay" id="sizePickerOverlay">
+  <div class="modal size-modal">
+    <div class="modal-header">
+      <h3 id="sizeModalTitle">Choose Size</h3>
+      <button class="close-btn" onclick="closeSizePicker()">✕</button>
+    </div>
+    <div class="size-product-info" id="sizeProductInfo"></div>
+    <div class="size-options" id="sizeOptions"></div>
+    <p class="size-hint">Size selection is optional — tap Skip to add without a size</p>
+    <div class="size-modal-actions">
+      <button class="submit-btn" id="sizeAddBtn" onclick="confirmAddToCart()">Add to Cart</button>
+      <button class="cancel-btn" onclick="skipSize()">Skip — Add Without Size</button>
+    </div>
+  </div>
+</div>
+
 <!-- ======== CHECKOUT MODAL ======== -->
-<div class="modal-overlay" id="checkoutOverlay">
-  <div class="modal">
+
+<div class="modal-overlay" id="checkoutOverlay" onclick="handleCheckoutOverlayClick(event)">
+  <div class="modal checkout-modal" onclick="event.stopPropagation()">
     <div class="modal-header">
       <h3>Complete Your Order</h3>
       <button class="close-btn" onclick="closeCheckout()">✕</button>
@@ -206,15 +418,43 @@
       <label>Delivery Address</label>
       <input id="custAddress" type="text" placeholder="e.g. 12 Kanda Highway, Accra">
     </div>
-    <p class="error-msg" id="checkoutError"></p>
-    <div class="modal-total">Total: <strong>GHS <span id="modalTotal">0.00</span></strong></div>
-    <button class="submit-btn" onclick="processPayment()">Pay with Paystack</button>
+
+```
+<!-- OpenStreetMap Location Picker (free) -->
+<div class="form-group">
+  <label>📍 Pin Your Delivery Location</label>
+  <button class="location-btn" onclick="getMyLocation()">Use My Current Location</button>
+  <div id="mapPicker" class="map-picker"></div>
+  <p class="location-hint" id="locationHint">Click the map or use button above to set delivery location</p>
+</div>
+
+<p class="error-msg" id="checkoutError"></p>
+<div class="modal-total">Total: <strong>GHS <span id="modalTotal">0.00</span></strong></div>
+<button class="submit-btn" onclick="processPayment()">Pay with Paystack</button>
+```
+
+  </div>
+</div>
+
+<!-- ======== RIDER ORDER DETAIL MODAL ======== -->
+
+<div class="modal-overlay" id="riderOrderModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Order Details</h3>
+      <button class="close-btn" onclick="closeRiderModal()">✕</button>
+    </div>
+    <div id="riderOrderDetail"></div>
+    <div id="riderOrderMap" class="map-picker" style="margin-top:16px"></div>
+    <div class="rider-modal-actions" id="riderModalActions"></div>
   </div>
 </div>
 
 <!-- ======== TOAST ======== -->
+
 <div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
+
 </body>
 </html>
