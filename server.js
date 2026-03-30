@@ -98,7 +98,8 @@ res.write(`data: ${JSON.stringify(data)}\n\n`);
 // ================= MIDDLEWARE =================
 const authenticate = (req, res, next) => {
 const authHeader = req.headers['authorization'] || '';
-const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+if (!token && req.query && req.query.token) token = req.query.token;
 if (!token) return res.status(401).json({ message: 'No token provided' });
 try {
 req.admin = jwt.verify(token, JWT_SECRET);
@@ -110,7 +111,8 @@ res.status(401).json({ message: 'Invalid or expired token' });
 
 const authenticateRider = (req, res, next) => {
 const authHeader = req.headers['authorization'] || '';
-const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+if (!token && req.query && req.query.token) token = req.query.token;
 if (!token) return res.status(401).json({ message: 'No token provided' });
 try {
 req.rider = jwt.verify(token, RIDER_JWT_SECRET);
