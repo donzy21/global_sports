@@ -1,8 +1,6 @@
-﻿// @ts-nocheck
-// eslint-disable
-// ===================== CONFIG =====================
+﻿// ===================== CONFIG =====================
 const API_URL = 'https://global-sports-backend.onrender.com/api';
-const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
+const PAYSTACK_PUBLIC_KEY = 'pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
 // ===================== STATE =====================
 let allProducts    = [];
@@ -114,7 +112,7 @@ renderProducts(allProducts);
 } catch (err) {
 console.error('Error fetching products:', err);
 document.getElementById('productsGrid').innerHTML =
-'<div class="empty-state"><p>Could not load products. Is the server running?</p></div>';
+`<div class="empty-state"><p>Could not load products. Is the server running?</p></div>`;
 }
 }
 
@@ -132,28 +130,29 @@ const placeholderStyle = p.image ? 'style="display:none"' : '';
 const stockBadge   = (p.stock !== undefined && p.stock === 0) ? `<span class="out-of-stock-badge">Out of Stock</span>` : '';
 const disabledAttr = (p.stock !== undefined && p.stock === 0) ? 'disabled title="Out of stock"' : '';
 const hasSizes     = p.sizeType && p.sizeType !== 'none' && p.sizes && p.sizes.length > 0;
-const sizesPreview = hasSizes
-? '<div class="product-sizes-preview">' + p.sizes.slice(0,5).map(s => '<span class="size-dot">' + escHtml(s) + '</span>').join('') + (p.sizes.length > 5 ? '<span class="size-dot">+' + (p.sizes.length - 5) + '</span>' : '') + '</div>'
-: '';
+const sizeDots     = hasSizes ? p.sizes.slice(0,5).map(function(s){ return '<span class="size-dot">' + escHtml(s) + '</span>'; }).join('') : '';
+const sizeMore     = hasSizes && p.sizes.length > 5 ? '<span class="size-dot">+' + (p.sizes.length - 5) + '</span>' : '';
+const sizesPreview = hasSizes ? '<div class="product-sizes-preview">' + sizeDots + sizeMore + '</div>' : '';
 
 ```
-return '<div class="product-card" data-id="' + p._id + '">' +
-    stockBadge +
-    imgHtml +
-    '<div class="product-card-img placeholder" ' + placeholderStyle + '>🏅</div>' +
-    '<div class="product-card-body">' +
-      '<span class="product-category">' + escHtml(p.category || '') + '</span>' +
-      '<div class="product-name">' + escHtml(p.name) + '</div>' +
-      (p.description ? '<div class="product-desc">' + escHtml(p.description) + '</div>' : '') +
-      sizesPreview +
-    '</div>' +
-    '<div class="product-footer">' +
-      '<div class="product-price"><span>GHS</span> ' + Number(p.price).toFixed(2) + '</div>' +
-      '<button class="add-to-cart-btn" data-product-id="' + p._id + '" ' + disabledAttr + '>' +
-        (hasSizes ? 'Select Size' : '+ Cart') +
-      '</button>' +
-    '</div>' +
-  '</div>';
+return `
+  <div class="product-card" data-id="${p._id}">
+    ${stockBadge}
+    ${imgHtml}
+    <div class="product-card-img placeholder" ${placeholderStyle}>🏅</div>
+    <div class="product-card-body">
+      <span class="product-category">${escHtml(p.category || '')}</span>
+      <div class="product-name">${escHtml(p.name)}</div>
+      ${p.description ? `<div class="product-desc">${escHtml(p.description)}</div>` : ''}
+      ${sizesPreview}
+    </div>
+    <div class="product-footer">
+      <div class="product-price"><span>GHS</span> ${Number(p.price).toFixed(2)}</div>
+      <button class="add-to-cart-btn" data-product-id="${p._id}" ${disabledAttr}>
+        ${hasSizes ? 'Select Size' : '+ Cart'}
+      </button>
+    </div>
+  </div>`;
 ```
 
 }).join('');
@@ -224,7 +223,7 @@ selectedSize     = null;
 function addToCart(productId, size) {
 const product = allProducts.find(p => p._id === productId);
 if (!product) return;
-cart.push({ ...product, selectedSize: size || null });
+cart.push({ …product, selectedSize: size || null });
 updateCartUI();
 const sizeLabel = size ? ` (${size})` : '';
 showToast(`${product.name}${sizeLabel} added to cart`, 'success');
@@ -387,7 +386,7 @@ name, email, phone, address,
 location: selectedLocation || null
 };
 const total        = cart.reduce((a, b) => a + b.price, 0);
-const cartSnapshot = [...cart];
+const cartSnapshot = […cart];
 
 const handler = PaystackPop.setup({
 key:      PAYSTACK_PUBLIC_KEY,
@@ -408,7 +407,7 @@ handler.openIframe();
 }
 
 async function verifyPayment(reference, customer, cartSnapshot) {
-showToast('Verifying payment...');
+showToast('Verifying payment…');
 try {
 const res  = await fetch(`${API_URL}/orders/verify`, {
 method:  'POST',
@@ -532,7 +531,7 @@ iconSize: [24,24], iconAnchor: [12,12]
 if (!trackRiderMarker) {
   trackRiderMarker = L.marker([riderLoc.lat, riderLoc.lng], { icon: riderIcon })
     .addTo(trackMap)
-    .bindPopup('🏍️ ' + (data.riderName || 'Rider') + ' is on the way!');
+    .bindPopup(`🏍️ ${data.riderName || 'Rider'} is on the way!`);
 } else {
   // Smoothly move existing marker
   trackRiderMarker.setLatLng([riderLoc.lat, riderLoc.lng]);
@@ -551,7 +550,7 @@ drawRoute(riderLoc.lat, riderLoc.lng, custLoc.lat, custLoc.lng);
 // Calculate and show ETA
 const etaMinutes = estimateETA(riderLoc.lat, riderLoc.lng, custLoc.lat, custLoc.lng);
 document.getElementById('trackETA').innerHTML =
-  '<span class="eta-label">Est. arrival</span><span class="eta-time">' + etaMinutes + ' min</span>';
+  `<span class="eta-label">Est. arrival</span><span class="eta-time">${etaMinutes} min</span>`;
 ```
 
 } else {
@@ -797,7 +796,7 @@ else showToast('Error deleting product', 'error');
 // ===================== ADMIN ORDERS =====================
 async function loadOrders() {
 const el = document.getElementById('ordersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders...</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders…</p>';
 try {
 const res    = await fetch(`${API_URL}/orders`, { headers: authHeaders() });
 const orders = await res.json();
@@ -837,7 +836,7 @@ else showToast('Error updating order status', 'error');
 // ===================== ADMIN — RIDERS =====================
 async function loadAdminRiders() {
 const el = document.getElementById('ridersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading riders...</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading riders…</p>';
 try {
 const res    = await fetch(`${API_URL}/admin/riders`, { headers: authHeaders() });
 const riders = await res.json();
@@ -982,7 +981,7 @@ document.getElementById('newOrderBanner').style.display = 'none';
 // ===================== RIDER ORDERS =====================
 async function loadAvailableOrders() {
 const el = document.getElementById('availableOrdersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders...</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders…</p>';
 try {
 const res    = await fetch(`${API_URL}/riders/orders/available`, { headers: riderAuthHeaders() });
 const orders = await res.json();
@@ -1006,7 +1005,7 @@ el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
 
 async function loadMyOrders() {
 const el = document.getElementById('myOrdersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading your deliveries...</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading your deliveries…</p>';
 try {
 const res    = await fetch(`${API_URL}/riders/orders/mine`, { headers: riderAuthHeaders() });
 const orders = await res.json();
@@ -1147,5 +1146,5 @@ return String(str)
 .replace(/</g, '<')
 .replace(/>/g, '>')
 .replace(/"/g, '"')
-.replace(/'/g, "");
+.replace(/'/g, ''');
 }
