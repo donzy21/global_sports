@@ -1,6 +1,6 @@
-﻿// ===================== CONFIG =====================
+// ===================== CONFIG =====================
 const API_URL = 'https://global-sports-backend.onrender.com/api';
-const PAYSTACK_PUBLIC_KEY = 'pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
+const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
 // ===================== STATE =====================
 let allProducts    = [];
@@ -673,6 +673,8 @@ function authHeaders() {
 return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` };
 }
 
+
+
 // ===================== ADMIN DATA =====================
 function loadAdminData() {
 loadAdminProducts();
@@ -1035,12 +1037,13 @@ el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
 function renderRiderOrderCard(o, showActions) {
 const date      = new Date(o.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
 const itemsHtml = (o.items || []).map(i => `<li>${escHtml(i.name)} — GHS ${Number(i.price).toFixed(2)}</li>`).join('');
-const locHtml   = o.customer?.location?.address ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${escHtml(o.customer.location.address)}</div>` : '';
+const locHtml   = o.customer?.location?.address ? `<div style="font-size:12px;color:var(--accent);margin-top:6px;font-weight:500">📍 ${escHtml(o.customer.location.address)}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">📍 No location provided</div>';
+const coordsDisplay = o.customer?.location?.lat ? `<div style="font-size:10px;color:var(--text-muted)">${o.customer.location.lat.toFixed(4)}, ${o.customer.location.lng.toFixed(4)}</div>` : '';
 const statusClass = `status-${o.status || 'pending'}`;
 
 const actionBtns = showActions ? `<button class="accept-btn" onclick="acceptOrder('${o._id}')">✓ Accept</button> <button class="reject-btn" onclick="dismissOrder('${o._id}')">✗ Dismiss</button> ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">🗺 Map</button>`: ''}` : `<span class="status-badge ${statusClass}">${o.status}</span> ${o.status === 'assigned' ?`<button class="delivered-btn" onclick="markDelivered('${o._id}')">✓ Mark Delivered</button>`: ''} ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">🗺 Map</button>`: ''}`;
 
-return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">📞 ${escHtml(o.customer?.phone || '')}</div> ${locHtml} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> </div> <div class="rider-order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
+return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">📞 ${escHtml(o.customer?.phone || '')}</div> ${locHtml} ${coordsDisplay} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> </div> <div class="rider-order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
 }
 
 async function acceptOrder(orderId) {
