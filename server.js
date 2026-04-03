@@ -1,5 +1,4 @@
 ﻿require('dotenv').config();
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -8,9 +7,19 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
 const app = express();
+
+// ================= MIDDLEWARE =================
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// ================= KEEP-ALIVE ROUTE =================
+// This must stay at the top to avoid 404 errors during pings
+app.get('/ping', (req, res) => {
+  console.log('Keep-alive heartbeat received at:', new Date().toISOString());
+  res.status(200).send('Server is awake');
+});
+
+// ================= CONFIGURATION =================
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET || process.env.SECRET_KEY;
@@ -22,12 +31,12 @@ const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM;
 const ADMIN_WHATSAPP_TO    = process.env.ADMIN_WHATSAPP_TO;
 
+// ================= DATABASE CONNECTION =================
 mongoose.connect(MONGO_URI)
-.then(() => console.log('MongoDB Connected'))
-.catch(err => console.error('MongoDB connection error:', err));
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // ================= MODELS =================
-
 const Product = mongoose.model('Product', new mongoose.Schema({
   name:        { type: String, required: true },
   price:       { type: Number, required: true },
@@ -83,7 +92,7 @@ const Rider = mongoose.model('Rider', new mongoose.Schema({
   createdAt:       { type: Date, default: Date.now }
 }));
 
-// ================= SSE ' REAL-TIME =================
+// ================= SSE REAL-TIME =================
 const riderClients = new Map();
 function notifyRiders(event, data) {
   riderClients.forEach((res) => {
@@ -92,7 +101,7 @@ function notifyRiders(event, data) {
   });
 }
 
-// ================= MIDDLEWARE =================
+// ================= AUTH MIDDLEWARE =================
 const authenticate = (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
@@ -119,7 +128,7 @@ const authenticateRider = (req, res, next) => {
   }
 };
 
-// ================= WHATSAPP =================
+// ================= WHATSAPP NOTIFICATIONS =================
 async function sendWhatsAppNotification(order) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM || !ADMIN_WHATSAPP_TO) {
     console.log('WhatsApp env vars not set - skipping notification');
@@ -127,7 +136,7 @@ async function sendWhatsAppNotification(order) {
   }
   const itemList = order.items.map(i => `• ${i.name} — GHS ${i.price}`).join('\n');
   const message =
-  `📦 *New Order ' Global Sports*\n\n` +
+  `📦 *New Order | Global Sports*\n\n` +
   `*Customer:* ${order.customer.name}\n` +
   `*Phone:* ${order.customer.phone}\n` +
   `*Email:* ${order.customer.email}\n` +
@@ -250,40 +259,7 @@ app.get('/api/orders', authenticate, async (req, res) => {
   res.json(orders);
 });
 
-app.put('/api/orders/:id/status', authenticate, async (req, res) => {
-  try {
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status: req.body.status },
-      { new: true }
-    );
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    res.json({ message: 'Order status updated', order });
-  } catch (err) {
-    res.status(400).json({ message: 'Error updating order', error: err.message });
-  }
-});
-
-app.put('/api/orders/:id/assign', authenticate, async (req, res) => {
-  try {
-    const { riderId } = req.body;
-    const rider = await Rider.findById(riderId);
-    if (!rider) return res.status(404).json({ message: 'Rider not found' });
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { riderId, riderName: rider.fullName, status: 'assigned' },
-      { new: true }
-    );
-    res.json({ message: 'Rider assigned', order });
-  } catch (err) {
-    res.status(400).json({ message: 'Error assigning rider', error: err.message });
-  }
-});
-
-// ================= RIDER ROUTES =================
-// ... [Rider registration, login remain unchanged] ...
-
-// Rider SSE notifications
+// ================= RIDER SSE =================
 app.get('/api/riders/notifications', authenticateRider, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -303,66 +279,7 @@ app.get('/api/riders/notifications', authenticateRider, (req, res) => {
   });
 });
 
-// Available orders for riders (include customer location)
-app.get('/api/riders/orders/available', authenticateRider, async (req, res) => {
-  try {
-    const orders = await Order.find({ status: 'paid', riderId: null })
-      .sort({ date: -1 })
-      .select('reference items amount customer location status date');
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ message: 'Error fetching orders' });
-  }
-});
-
-// Rider accepts an order
-app.put('/api/riders/orders/:id/accept', authenticateRider, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    if (order.riderId) return res.status(400).json({ message: 'Order already taken by another rider' });
-    const updated = await Order.findByIdAndUpdate(
-      req.params.id,
-      { riderId: req.rider.id, riderName: req.rider.fullName, status: 'assigned' },
-      { new: true }
-    );
-    notifyRiders('order_taken', { orderId: req.params.id });
-    res.json({ message: 'Order accepted', order: updated });
-  } catch (err) {
-    res.status(500).json({ message: 'Error accepting order' });
-  }
-});
-
-// Rider's assigned orders (include customer location + rider location)
-app.get('/api/riders/orders/mine', authenticateRider, async (req, res) => {
-  try {
-    const orders = await Order.find({ riderId: req.rider.id })
-      .sort({ date: -1 })
-      .select('reference items amount customer status riderLocation date');
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ message: 'Error fetching orders' });
-  }
-});
-
-// Rider updates live location
-app.put('/api/riders/location', authenticateRider, async (req, res) => {
-  const { lat, lng, orderId } = req.body;
-  if (!lat || !lng) return res.status(400).json({ message: 'lat and lng required' });
-
-  try {
-    if (orderId) {
-      await Order.findByIdAndUpdate(orderId, {
-        riderLocation: { lat, lng, updatedAt: new Date() }
-      });
-    }
-    res.json({ message: 'Location updated' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error updating location' });
-  }
-});
-
-// ================= TRACKING ROUTES =================
+// ================= TRACKING =================
 app.get('/api/track/:reference', async (req, res) => {
   try {
     const order = await Order.findOne({ reference: req.params.reference });
@@ -382,5 +299,5 @@ app.get('/api/track/:reference', async (req, res) => {
   }
 });
 
-// ================= START =================
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ================= SERVER START =================
+app.listen(PORT, () => console.log(`🚀 Global Sports Backend running on port ${PORT}`));
