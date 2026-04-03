@@ -705,6 +705,30 @@ nav { display: flex; align-items: center; gap: 8px; }
 }
 .status-select:focus { border-color: var(--accent); }
 
+
+
+/* ===================== ADMIN LOGOUT BUTTON ===================== */
+.admin-logout-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adminLogout:hover {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
 /* ===================== CHECKOUT MODAL ===================== */
 .modal-overlay {
   display: none;
@@ -785,7 +809,7 @@ nav { display: flex; align-items: center; gap: 8px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #444; }
-/* ===== PASTE THIS AT THE BOTTOM OF YOUR EXISTING style.css ===== */
+
 
 /* ===================== AUTH TABS ===================== */
 .auth-tabs {
@@ -1117,7 +1141,7 @@ nav { display: flex; align-items: center; gap: 8px; }
   .rider-controls { flex-wrap: wrap; }
 }
 
-/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css (after the rider additions) ===== */
+
 
 /* ===================== SIZE PREVIEW ON PRODUCT CARD ===================== */
 .product-sizes-preview {
@@ -1217,14 +1241,13 @@ nav { display: flex; align-items: center; gap: 8px; }
   margin-top: 2px;
   letter-spacing: 0.3px;
 }
-/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css ===== */
 
 /* Make checkout modal scrollable on small screens */
 .checkout-modal {
   max-height: 90vh;
   overflow-y: auto;
 }
-/* ===== PASTE THIS AT THE BOTTOM OF YOUR style.css ===== */
+
 
 /* ===================== TRACK ORDER ===================== */
 .track-wrapper {
