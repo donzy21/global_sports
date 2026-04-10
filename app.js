@@ -47,7 +47,6 @@ return;
 // ===================== STATE =====================
 let allProducts    = [];
 let cart           = [];
-let adminToken     = localStorage.getItem('gs_admin_token') || null;
 let riderToken     = localStorage.getItem('gs_rider_token') || null;
 let riderInfo      = JSON.parse(localStorage.getItem('gs_rider_info') || 'null');
 let editingProduct = null;
@@ -78,7 +77,6 @@ document.getElementById('loader').classList.add('hidden');
 await discoverApiUrl();
 fetchProducts();
 
-if (adminToken) showAdminNav(true);
 if (riderToken && riderInfo) {
 showRiderNav(true);
 document.getElementById('riderWelcome').textContent = `Welcome, ${riderInfo.fullName}`;
@@ -101,15 +99,12 @@ document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'))
 
 const sectionMap = {
 shop:       'shopSection',
-login:      'loginSection',
-admin:      'adminSection',
 riderLogin: 'riderLoginSection',
 riderDash:  'riderDashSection',
 track:      'trackSection'
 };
 const navMap = {
 shop:      'navShop',
-admin:     'navAdmin',
 riderDash: 'navRiderDash',
 track:     'navTrack'
 };
@@ -119,18 +114,7 @@ if (section) section.classList.add('active');
 const navBtn = document.getElementById(navMap[name]);
 if (navBtn) navBtn.classList.add('active');
 
-if (name === 'admin') loadAdminData();
 if (name === 'riderDash') { loadAvailableOrders(); loadMyOrders(); }
-}
-
-function showAdminOrLogin() {
-if (adminToken) showSection('admin');
-else showSection('login');
-}
-
-function showAdminNav(show) {
-document.getElementById('navAdmin').style.display    = show ? '' : 'none';
-document.getElementById('navLogin').style.display    = show ? 'none' : '';
 }
 
 function showRiderNav(show) {
@@ -714,233 +698,6 @@ riderGPSWatch    = null;
 riderActiveOrder = null;
 showToast('GPS sharing stopped', '');
 }
-}
-
-// ===================== ADMIN LOGIN =====================
-async function adminLogin() {
-const username = document.getElementById('loginUsername').value.trim();
-const password = document.getElementById('loginPassword').value;
-const errEl    = document.getElementById('loginError');
-errEl.textContent = '';
-if (!username || !password) { errEl.textContent = 'Please enter username and password.'; return; }
-try {
-const res  = await fetch(`${API_URL}/admin/login`, {
-method: 'POST', headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({ username, password })
-});
-const data = await res.json();
-if (res.ok && data.token) {
-adminToken = data.token;
-localStorage.setItem('gs_admin_token', adminToken);
-showAdminNav(true);
-showSection('admin');
-showToast('Welcome back!', 'success');
-} else {
-errEl.textContent = data.message || 'Login failed';
-}
-} catch { errEl.textContent = 'Could not connect to server.'; }
-}
-
-function adminLogout() {
-adminToken = null;
-localStorage.removeItem('gs_admin_token');
-showAdminNav(false);
-showSection('shop');
-showToast('Logged out');
-}
-
-function authHeaders() {
-return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` };
-}
-
-
-
-// ===================== ADMIN DATA =====================
-function loadAdminData() {
-loadAdminProducts();
-loadOrders();
-loadAdminRiders();
-}
-
-async function loadAdminProducts() {
-try {
-const res   = await fetch(`${API_URL}/products`);
-allProducts = await res.json();
-renderAdminProductList(allProducts);
-document.getElementById('productCount').textContent = allProducts.length;
-} catch { showToast('Error loading products', 'error'); }
-}
-
-function renderAdminProductList(products) {
-const el = document.getElementById('adminProductList');
-if (!products.length) {
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:40px 0">No products yet. Add one!</p>';
-return;
-}
-el.innerHTML = products.map(p => `<div class="admin-product-row" id="adr-${p._id}"> ${p.image ?`<img class="adr-img" src="${escHtml(p.image)}" alt="" onerror="this.src=''">` : `<div class="adr-img" style="display:flex;align-items:center;justify-content:center;font-size:22px">🏅</div>`} <div class="adr-info"> <div class="adr-name">${escHtml(p.name)}</div> <div class="adr-meta">${escHtml(p.category || '—')} · Stock: ${p.stock ?? '?'}</div> </div> <div class="adr-price">GHS ${Number(p.price).toFixed(2)}</div> <div class="adr-actions"> <button class="edit-btn"   onclick="startEditProduct('${p._id}')">Edit</button> <button class="delete-btn" onclick="deleteProduct('${p._id}')">✕</button> </div> </div>`).join('');
-}
-
-async function submitProduct() {
-const name        = document.getElementById('productName').value.trim();
-const price       = parseFloat(document.getElementById('productPrice').value);
-const stock       = parseInt(document.getElementById('productStock').value);
-const category    = document.getElementById('productCategory').value;
-const description = document.getElementById('productDescription').value.trim();
-const image       = document.getElementById('productImage').value.trim();
-const sizeType    = document.getElementById('productSizeType').value;
-
-if (!name || isNaN(price) || price <= 0 || !category || isNaN(stock) || stock < 0) {
-showToast('Please fill all required fields correctly', 'error'); return;
-}
-
-// Build sizes array based on sizeType
-let sizes = [];
-if (sizeType === 'clothing') {
-sizes = ['S', 'M', 'L', 'XL', 'XXL'];
-} else if (sizeType === 'footwear') {
-sizes = ['36','37','38','39','40','41','42','43','44','45'];
-} else if (sizeType === 'custom') {
-const raw = document.getElementById('productCustomSizes').value.trim();
-sizes = raw.split(',').map(s => s.trim()).filter(Boolean);
-}
-
-const payload   = { name, price, stock, category, description, image, sizeType, sizes };
-const isEditing = !!editingProduct;
-try {
-const url    = isEditing ? `${API_URL}/products/${editingProduct}` : `${API_URL}/products`;
-const method = isEditing ? 'PUT' : 'POST';
-const res    = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(payload) });
-const data   = await res.json();
-if (res.ok) {
-showToast(isEditing ? 'Product updated!' : 'Product added!', 'success');
-resetProductForm(); loadAdminProducts(); fetchProducts();
-} else if (res.status === 401) { showToast('Session expired', 'error'); adminLogout(); }
-else { showToast(data.message || 'Error saving product', 'error'); }
-} catch { showToast('Network error', 'error'); }
-}
-
-function startEditProduct(id) {
-const product = allProducts.find(p => p._id === id);
-if (!product) return;
-editingProduct = id;
-document.getElementById('formTitle').textContent      = 'Edit Product';
-document.getElementById('productName').value          = product.name;
-document.getElementById('productPrice').value         = product.price;
-document.getElementById('productStock').value         = product.stock ?? 0;
-document.getElementById('productCategory').value      = product.category || '';
-document.getElementById('productDescription').value   = product.description || '';
-document.getElementById('productImage').value         = product.image || '';
-document.getElementById('productSizeType').value      = product.sizeType || 'none';
-handleSizeTypeChange(product.sizeType || 'none');
-if (product.sizeType === 'custom') {
-document.getElementById('productCustomSizes').value = (product.sizes || []).join(', ');
-}
-document.getElementById('formSubmitBtn').textContent  = 'Save Changes';
-document.getElementById('formCancelBtn').style.display = '';
-document.getElementById('productName').scrollIntoView({ behavior: 'smooth', block: 'center' });
-document.getElementById('productName').focus();
-}
-
-function resetProductForm() {
-editingProduct = null;
-['productName','productPrice','productStock','productDescription','productImage','productCustomSizes'].forEach(id => {
-document.getElementById(id).value = '';
-});
-document.getElementById('productCategory').value      = '';
-document.getElementById('productSizeType').value      = 'none';
-document.getElementById('customSizesGroup').style.display = 'none';
-document.getElementById('formTitle').textContent      = 'Add New Product';
-document.getElementById('formSubmitBtn').textContent  = 'Add Product';
-document.getElementById('formCancelBtn').style.display = 'none';
-}
-
-function handleSizeTypeChange(value) {
-const customGroup = document.getElementById('customSizesGroup');
-customGroup.style.display = value === 'custom' ? '' : 'none';
-}
-
-async function deleteProduct(id) {
-const product = allProducts.find(p => p._id === id);
-if (!confirm(`Delete "${product?.name || 'this product'}"? This cannot be undone.`)) return;
-try {
-const res = await fetch(`${API_URL}/products/${id}`, { method: 'DELETE', headers: authHeaders() });
-if (res.ok) { showToast('Product deleted', 'success'); loadAdminProducts(); fetchProducts(); }
-else if (res.status === 401) { showToast('Session expired', 'error'); adminLogout(); }
-else showToast('Error deleting product', 'error');
-} catch { showToast('Network error', 'error'); }
-}
-
-// ===================== ADMIN ORDERS =====================
-async function loadOrders() {
-const el = document.getElementById('ordersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders...</p>';
-try {
-const res    = await fetch(`${API_URL}/orders`, { headers: authHeaders() });
-const orders = await res.json();
-if (!res.ok) {
-if (res.status === 401) { showToast('Session expired', 'error'); adminLogout(); return; }
-el.innerHTML = '<p style="color:var(--red);font-size:14px">Error loading orders.</p>'; return;
-}
-if (!orders.length) {
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:60px 0">No orders yet.</p>'; return;
-}
-el.innerHTML = orders.map(o => {
-const date       = new Date(o.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-const itemsHtml  = (o.items || []).map(i => `<li>${escHtml(i.name)} — GHS ${Number(i.price).toFixed(2)}</li>`).join('');
-const statusClass = `status-${o.status || 'pending'}`;
-const locationHtml = o.customer?.location?.address
-? `<div class="order-contact">📍 ${escHtml(o.customer.location.address)}</div>` : '';
-const riderHtml = o.riderName
-? `<div class="order-contact">🏍️ Rider: ${escHtml(o.riderName)}</div>` : '';
-return ` <div class="order-card"> <div class="order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">${escHtml(o.customer?.email || '')} · ${escHtml(o.customer?.phone || '')}</div> ${locationHtml}${riderHtml} </div> <div class="order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="order-items">${itemsHtml}</ul> <div class="order-footer"> <span class="status-badge ${statusClass}">${o.status || 'pending'}</span> <span class="order-date">${date}</span> <select class="status-select" onchange="updateOrderStatus('${o._id}', this.value)"> <option value="">Update status...</option> <option value="pending">Pending</option> <option value="paid">Paid</option> <option value="assigned">Assigned</option> <option value="shipped">Shipped</option> <option value="delivered">Delivered</option> </select> </div> </div>`;
-}).join('');
-} catch {
-el.innerHTML = '<p style="color:var(--red);font-size:14px">Network error loading orders.</p>';
-}
-}
-
-async function updateOrderStatus(orderId, status) {
-if (!status) return;
-try {
-const res = await fetch(`${API_URL}/orders/${orderId}/status`, {
-method: 'PUT', headers: authHeaders(), body: JSON.stringify({ status })
-});
-if (res.ok) { showToast(`Order marked as ${status}`, 'success'); loadOrders(); }
-else showToast('Error updating order status', 'error');
-} catch { showToast('Network error', 'error'); }
-}
-
-// ===================== ADMIN — RIDERS =====================
-async function loadAdminRiders() {
-const el = document.getElementById('ridersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading riders...</p>';
-try {
-const res    = await fetch(`${API_URL}/admin/riders`, { headers: authHeaders() });
-const riders = await res.json();
-if (!riders.length) {
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:60px 0">No rider applications yet.</p>';
-return;
-}
-el.innerHTML = riders.map(r => {
-const statusClass = `status-${r.status}`;
-const avatar = r.passportPhotoUrl
-? `<img class="rider-avatar" src="${escHtml(r.passportPhotoUrl)}" alt="" onerror="this.outerHTML='<div class=\\'rider-avatar\\'>🏍️</div>'">`
-: `<div class="rider-avatar">🏍️</div>`;
-return `<div class="rider-card"> ${avatar} <div class="rider-card-info"> <div class="rider-card-name">${escHtml(r.fullName)}</div> <div class="rider-card-meta"> <span>📞 ${escHtml(r.phone)}</span> <span>🪪 Ghana Card: ${escHtml(r.ghanaCardId)}</span> <span>🚗 License: ${escHtml(r.vehicleLicenseId)}</span> <span>📅 Applied: ${new Date(r.createdAt).toLocaleDateString('en-GH')}</span> </div> </div> <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"> <span class="status-badge ${statusClass}">${r.status}</span> <div class="rider-card-actions"> ${r.status !== 'approved' ?`<button class="approve-btn" onclick="updateRiderStatus('${r._id}', 'approved')">Approve</button>`: ''} ${r.status !== 'rejected' ?`<button class="reject-rider-btn" onclick="updateRiderStatus('${r._id}', 'rejected')">Reject</button>`: ''} ${r.ghanaCardPhotoUrl ?`<a class="view-docs-btn" href="${escHtml(r.ghanaCardPhotoUrl)}" target="_blank">View ID</a>` : ''} </div> </div> </div>`;
-}).join('');
-} catch {
-el.innerHTML = '<p style="color:var(--red);font-size:14px">Error loading riders.</p>';
-}
-}
-
-async function updateRiderStatus(riderId, status) {
-try {
-const res = await fetch(`${API_URL}/admin/riders/${riderId}/status`, {
-method: 'PUT', headers: authHeaders(), body: JSON.stringify({ status })
-});
-if (res.ok) { showToast(`Rider ${status}!`, 'success'); loadAdminRiders(); }
-else showToast('Error updating rider', 'error');
-} catch { showToast('Network error', 'error'); }
 }
 
 // ===================== RIDER REGISTER =====================
