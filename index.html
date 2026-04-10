@@ -92,6 +92,16 @@
     <button class="filter-chip" onclick="filterCategory('Accessories', this)">Accessories</button>
   </div>
 
+
+  <div class="search-bar-wrapper">
+    <div class="search-bar">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="searchInput" type="text" placeholder="Search jerseys, boots, gym gear..." 
+        oninput="searchProducts(this.value); document.getElementById('searchClear').style.display=this.value?'flex':'none'" 
+        autocomplete="off">
+      <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&#10005;</button>
+    </div>
+  </div>
   <div class="products-grid" id="productsGrid">
     <div class="skeleton-card"></div>
     <div class="skeleton-card"></div>
@@ -258,7 +268,6 @@
   </div>
   <div id="ridersList" class="riders-list"></div>
 </div>
-```
 
   </div>
 </section>
@@ -272,7 +281,6 @@
       <button class="auth-tab" onclick="switchAuthTab('riderRegisterForm', this)">Register</button>
     </div>
 
-```
 <!-- Login Form -->
 <div id="riderLoginForm">
   <h2>Rider Login</h2>
@@ -313,12 +321,10 @@
     <label>Vehicle License ID *</label>
     <input id="riderRegLicense" type="text" placeholder="Vehicle license number">
   </div>
-  <div class="form-group">
   <p class="error-msg" id="riderRegError"></p>
   <p class="info-msg" id="riderRegSuccess"></p>
   <button class="submit-btn" onclick="riderRegister()">Submit Application</button>
 </div>
-```
 
   </div>
 </section>
@@ -344,7 +350,6 @@
       </div>
     </div>
 
-```
 <div class="dash-tabs">
   <button class="dash-tab active" onclick="switchRiderTab('available', this)">Available Orders</button>
   <button class="dash-tab" onclick="switchRiderTab('mine', this)">My Deliveries</button>
@@ -371,7 +376,6 @@
   </div>
   <div id="myOrdersList" class="orders-list"></div>
 </div>
-```
 
   </div>
 </section>
@@ -419,7 +423,6 @@
       <input id="custAddress" type="text" placeholder="e.g. 12 Kanda Highway, Accra">
     </div>
 
-```
 <!-- OpenStreetMap Location Picker (free) -->
 <div class="form-group">
   <label>📍 Pin Your Delivery Location</label>
@@ -431,7 +434,6 @@
 <p class="error-msg" id="checkoutError"></p>
 <div class="modal-total">Total: <strong>GHS <span id="modalTotal">0.00</span></strong></div>
 <button class="submit-btn" onclick="processPayment()">Pay with Paystack</button>
-```
 
   </div>
 </div>

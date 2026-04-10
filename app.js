@@ -1,6 +1,48 @@
-// ===================== CONFIG =====================
-const API_URL = 'https://global-sports-backend.onrender.com/api';
+﻿// ===================== CONFIG =====================
+let API_URL = (() => {
+const override = localStorage.getItem('gs_api_url');
+if (override) return override;
+const host = window.location.hostname;
+if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
+return 'https://global-sports-backend.onrender.com/api';
+})();
 const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
+
+function getApiCandidates() {
+const sameOriginApi = window.location.origin && window.location.origin.startsWith('http')
+? `${window.location.origin}/api`
+: null;
+const list = [
+localStorage.getItem('gs_api_url') || null,
+API_URL,
+sameOriginApi,
+'http://localhost:5001/api',
+'http://localhost:5000/api',
+'https://global-sports-backend.onrender.com/api'
+].filter(Boolean);
+return [...new Set(list)];
+}
+
+async function parseJsonSafe(res) {
+const text = await res.text();
+if (!text) return null;
+try { return JSON.parse(text); }
+catch { return { message: text }; }
+}
+
+async function discoverApiUrl() {
+for (const base of getApiCandidates()) {
+try {
+const res = await fetch(`${base}/products`);
+if (!res.ok) continue;
+API_URL = base;
+localStorage.setItem('gs_api_url', API_URL);
+return;
+} catch {
+// Try next candidate URL
+}
+}
+}
 
 // ===================== STATE =====================
 let allProducts    = [];
@@ -28,11 +70,12 @@ let riderGPSWatch    = null;
 let riderActiveOrder = null;
 
 // ===================== INIT =====================
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
 setTimeout(() => {
 document.getElementById('loader').classList.add('hidden');
 }, 1300);
 
+await discoverApiUrl();
 fetchProducts();
 
 if (adminToken) showAdminNav(true);
@@ -161,6 +204,43 @@ e.preventDefault();
 handleAddToCartClick(this.getAttribute('data-product-id'));
 });
 });
+}
+
+
+// ===================== SEARCH =====================
+function searchProducts(query) {
+  const q = (query || '').toLowerCase().trim();
+  // Clear category filter chips when searching
+  if (q) {
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  }
+  if (!q) {
+    renderProducts(allProducts);
+    return;
+  }
+  const filtered = allProducts.filter(p => {
+    const name = (p.name || '').toLowerCase();
+    const cat  = (p.category || '').toLowerCase();
+    const desc = (p.description || '').toLowerCase();
+    return name.includes(q) || cat.includes(q) || desc.includes(q);
+  });
+  renderProducts(filtered);
+  // Show result count
+  const grid = document.getElementById('productsGrid');
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="empty-state"><p>No products found for "' + escHtml(query) + '"</p></div>';
+  }
+}
+
+function clearSearch() {
+  const input = document.getElementById('searchInput');
+  if (input) input.value = '';
+  document.getElementById('searchClear').style.display = 'none';
+  // Re-activate All filter
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  const allChip = document.querySelector('.filter-chip');
+  if (allChip) allChip.classList.add('active');
+  renderProducts(allProducts);
 }
 
 function filterCategory(cat, btn) {
@@ -405,7 +485,7 @@ handler.openIframe();
 }
 
 async function verifyPayment(reference, customer, cartSnapshot) {
-showToast('Verifying payment…');
+showToast('Verifying payment...');
 try {
 const res  = await fetch(`${API_URL}/orders/verify`, {
 method:  'POST',
@@ -697,7 +777,7 @@ if (!products.length) {
 el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:40px 0">No products yet. Add one!</p>';
 return;
 }
-el.innerHTML = products.map(p => `<div class="admin-product-row" id="adr-${p._id}"> ${p.image ?`<img class="adr-img" src="${escHtml(p.image)}" alt="" onerror="this.src=''">`:`<div class="adr-img" style="display:flex;align-items:center;justify-content:center;font-size:22px">🏅</div>`} <div class="adr-info"> <div class="adr-name">${escHtml(p.name)}</div> <div class="adr-meta">${escHtml(p.category || '—')} · Stock: ${p.stock ?? '?'}</div> </div> <div class="adr-price">GHS ${Number(p.price).toFixed(2)}</div> <div class="adr-actions"> <button class="edit-btn"   onclick="startEditProduct('${p._id}')">Edit</button> <button class="delete-btn" onclick="deleteProduct('${p._id}')">✕</button> </div> </div>`).join('');
+el.innerHTML = products.map(p => `<div class="admin-product-row" id="adr-${p._id}"> ${p.image ?`<img class="adr-img" src="${escHtml(p.image)}" alt="" onerror="this.src=''">` : `<div class="adr-img" style="display:flex;align-items:center;justify-content:center;font-size:22px">🏅</div>`} <div class="adr-info"> <div class="adr-name">${escHtml(p.name)}</div> <div class="adr-meta">${escHtml(p.category || '—')} · Stock: ${p.stock ?? '?'}</div> </div> <div class="adr-price">GHS ${Number(p.price).toFixed(2)}</div> <div class="adr-actions"> <button class="edit-btn"   onclick="startEditProduct('${p._id}')">Edit</button> <button class="delete-btn" onclick="deleteProduct('${p._id}')">✕</button> </div> </div>`).join('');
 }
 
 async function submitProduct() {
@@ -793,7 +873,7 @@ else showToast('Error deleting product', 'error');
 // ===================== ADMIN ORDERS =====================
 async function loadOrders() {
 const el = document.getElementById('ordersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders…</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders...</p>';
 try {
 const res    = await fetch(`${API_URL}/orders`, { headers: authHeaders() });
 const orders = await res.json();
@@ -833,7 +913,7 @@ else showToast('Error updating order status', 'error');
 // ===================== ADMIN — RIDERS =====================
 async function loadAdminRiders() {
 const el = document.getElementById('ridersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading riders…</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading riders...</p>';
 try {
 const res    = await fetch(`${API_URL}/admin/riders`, { headers: authHeaders() });
 const riders = await res.json();
@@ -900,13 +980,24 @@ const password = document.getElementById('riderLoginPassword').value;
 const errEl    = document.getElementById('riderLoginError');
 errEl.textContent = '';
 if (!phone || !password) { errEl.textContent = 'Please enter phone and password.'; return; }
+let lastError = 'Could not reach server. Please try again.';
+
+for (const base of getApiCandidates()) {
 try {
-const res  = await fetch(`${API_URL}/riders/login`, {
+const res  = await fetch(`${base}/riders/login`, {
 method: 'POST', headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ phone, password })
 });
-const data = await res.json();
-if (res.ok && data.token) {
+const data = await parseJsonSafe(res);
+
+if (res.status === 404) {
+lastError = 'Rider login route was not found on server (404).';
+continue;
+}
+
+if (res.ok && data && data.token) {
+API_URL = base;
+localStorage.setItem('gs_api_url', API_URL);
 riderToken = data.token;
 riderInfo  = data.rider;
 localStorage.setItem('gs_rider_token', riderToken);
@@ -916,10 +1007,17 @@ document.getElementById('riderWelcome').textContent = `Welcome, ${riderInfo.full
 showSection('riderDash');
 connectRiderSSE();
 showToast(`Welcome, ${riderInfo.fullName}!`, 'success');
-} else {
-errEl.textContent = data.message || 'Login failed';
+return;
 }
-} catch { errEl.textContent = 'Network error'; }
+
+lastError = (data && data.message) ? data.message : `Login failed (${res.status})`;
+break;
+} catch {
+lastError = 'Network connection failed. Check internet/server and try again.';
+}
+}
+
+errEl.textContent = lastError;
 }
 
 function riderLogout() {
@@ -979,7 +1077,7 @@ document.getElementById('newOrderBanner').style.display = 'none';
 // ===================== RIDER ORDERS =====================
 async function loadAvailableOrders() {
 const el = document.getElementById('availableOrdersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders…</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading orders...</p>';
 try {
 const res = await fetch(`${API_URL}/riders/orders/available`, { headers: riderAuthHeaders() });
 if (!res.ok) {
@@ -1009,7 +1107,7 @@ el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
 
 async function loadMyOrders() {
 const el = document.getElementById('myOrdersList');
-el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading your deliveries…</p>';
+el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:20px 0">Loading your deliveries...</p>';
 try {
 const res = await fetch(`${API_URL}/riders/orders/mine`, { headers: riderAuthHeaders() });
 if (!res.ok) {
@@ -1156,9 +1254,9 @@ if (name === 'mine') loadMyOrders();
 function escHtml(str) {
 if (!str) return '';
 return String(str)
-.replace(/&/g, '&')
-.replace(/</g, '<')
-.replace(/>/g, '>')
-.replace(/"/g, '"')
-.replace(/'/g, "'");
+.replace(/&/g, '&amp;')
+.replace(/</g, '&lt;')
+.replace(/>/g, '&gt;')
+.replace(/"/g, '&quot;')
+.replace(/'/g, '&#39;');
 }

@@ -13,7 +13,6 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // ================= KEEP-ALIVE ROUTE =================
-// This must stay at the top to avoid 404 errors during pings
 app.get('/ping', (req, res) => {
   console.log('Keep-alive heartbeat received at:', new Date().toISOString());
   res.status(200).send('Server is awake');
@@ -101,11 +100,13 @@ function notifyRiders(event, data) {
   });
 }
 
-// ================= AUTH MIDDLEWARE =================
+// ================= AUTH MIDDLEWARE (FIXED) =================
 const authenticate = (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
+  // FIX: Properly handle Bearer prefix and fallback to query token
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
   if (!token && req.query && req.query.token) token = req.query.token;
+  
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     req.admin = jwt.verify(token, JWT_SECRET);
@@ -117,8 +118,10 @@ const authenticate = (req, res, next) => {
 
 const authenticateRider = (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
+  // FIX: Properly handle Bearer prefix and fallback to query token
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
   if (!token && req.query && req.query.token) token = req.query.token;
+
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     req.rider = jwt.verify(token, RIDER_JWT_SECRET);
@@ -296,6 +299,189 @@ app.get('/api/track/:reference', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: 'Error fetching tracking info' });
+  }
+});
+
+
+// ================= ORDER STATUS UPDATE =================
+app.put('/api/orders/:id/status', authenticate, async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id, { status: req.body.status }, { new: true }
+    );
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    res.json({ message: 'Order status updated', order });
+  } catch (err) {
+    res.status(400).json({ message: 'Error updating order', error: err.message });
+  }
+});
+
+// ================= RIDER REGISTER =================
+app.post('/api/riders/register', async (req, res) => {
+  const { fullName, phone, password, ghanaCardId, vehicleLicenseId } = req.body;
+  if (!fullName || !phone || !password || !ghanaCardId || !vehicleLicenseId)
+    return res.status(400).json({ message: 'Please fill all required fields' });
+  try {
+    const hashed = await bcrypt.hash(password, 10);
+    const rider  = await Rider.create({ fullName, phone, password: hashed, ghanaCardId, vehicleLicenseId });
+    res.json({ message: 'Registration submitted! Await admin approval.', rider });
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ message: 'Phone number already registered' });
+    res.status(400).json({ message: 'Error registering rider', error: err.message });
+  }
+});
+
+// ================= RIDER LOGIN =================
+app.post('/api/riders/login', async (req, res) => {
+  const { phone, password } = req.body;
+  const rider = await Rider.findOne({ phone });
+  if (!rider) return res.status(400).json({ message: 'Invalid credentials' });
+  const valid = await bcrypt.compare(password, rider.password);
+  if (!valid) return res.status(400).json({ message: 'Invalid credentials' });
+  if (rider.status === 'pending')  return res.status(403).json({ message: 'Your account is pending admin approval' });
+  if (rider.status === 'rejected') return res.status(403).json({ message: 'Your account has been rejected. Contact admin.' });
+  const token = jwt.sign(
+    { id: rider._id, fullName: rider.fullName, phone: rider.phone },
+    RIDER_JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+  res.json({
+    message: 'Login successful', token,
+    rider: { id: rider._id, fullName: rider.fullName, phone: rider.phone, status: rider.status, isAvailable: rider.isAvailable }
+  });
+});
+
+// ================= RIDER AVAILABLE ORDERS =================
+app.get('/api/riders/orders/available', authenticateRider, async (req, res) => {
+  try {
+    const orders = await Order.find({ status: 'paid', riderId: null }).sort({ date: -1 });
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching orders' });
+  }
+});
+
+// ================= RIDER MY ORDERS =================
+app.get('/api/riders/orders/mine', authenticateRider, async (req, res) => {
+  try {
+    const orders = await Order.find({ riderId: req.rider.id }).sort({ date: -1 });
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching orders' });
+  }
+});
+
+// ================= RIDER ACCEPT ORDER =================
+app.put('/api/riders/orders/:id/accept', authenticateRider, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.riderId) return res.status(400).json({ message: 'Order already taken by another rider' });
+    const updated = await Order.findByIdAndUpdate(
+      req.params.id,
+      { riderId: req.rider.id, riderName: req.rider.fullName, status: 'assigned' },
+      { new: true }
+    );
+    notifyRiders('order_taken', { orderId: req.params.id });
+    res.json({ message: 'Order accepted', order: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Error accepting order' });
+  }
+});
+
+// ================= RIDER REJECT ORDER =================
+app.put('/api/riders/orders/:id/reject', authenticateRider, async (req, res) => {
+  res.json({ message: 'Order dismissed' });
+});
+
+// ================= RIDER MARK DELIVERED =================
+app.put('/api/riders/orders/:id/delivered', authenticateRider, async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id, { status: 'delivered' }, { new: true }
+    );
+    res.json({ message: 'Order marked as delivered', order });
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating order' });
+  }
+});
+
+// ================= RIDER AVAILABILITY =================
+app.put('/api/riders/availability', authenticateRider, async (req, res) => {
+  try {
+    const rider = await Rider.findByIdAndUpdate(
+      req.rider.id, { isAvailable: req.body.isAvailable }, { new: true }
+    );
+    res.json({ message: 'Availability updated', isAvailable: rider.isAvailable });
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating availability' });
+  }
+});
+
+// ================= RIDER LOCATION UPDATE =================
+app.put('/api/riders/location', authenticateRider, async (req, res) => {
+  const { lat, lng, orderId } = req.body;
+  if (!lat || !lng) return res.status(400).json({ message: 'lat and lng required' });
+  try {
+    if (orderId) {
+      await Order.findByIdAndUpdate(orderId, {
+        riderLocation: { lat, lng, updatedAt: new Date() }
+      });
+    }
+    res.json({ message: 'Location updated' });
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating location' });
+  }
+});
+
+// ================= ADMIN GET ALL RIDERS =================
+app.get('/api/admin/riders', authenticate, async (req, res) => {
+  const riders = await Rider.find().sort({ createdAt: -1 });
+  res.json(riders);
+});
+
+// ================= ADMIN APPROVE/REJECT RIDER =================
+app.put('/api/admin/riders/:id/status', authenticate, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['approved', 'rejected'].includes(status))
+      return res.status(400).json({ message: 'Invalid status' });
+    const rider = await Rider.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!rider) return res.status(404).json({ message: 'Rider not found' });
+    res.json({ message: `Rider ${status}`, rider });
+  } catch (err) {
+    res.status(400).json({ message: 'Error updating rider', error: err.message });
+  }
+});
+
+// ================= ADMIN DELETE RIDER =================
+app.delete('/api/admin/riders/:id', authenticate, async (req, res) => {
+  try {
+    await Rider.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Rider deleted' });
+  } catch (err) {
+    res.status(400).json({ message: 'Error deleting rider' });
+  }
+});
+
+// ================= ADMIN DASHBOARD STATS =================
+app.get('/api/admin/dashboard/stats', authenticate, async (req, res) => {
+  try {
+    const totalOrders = await Order.countDocuments();
+    const totalProducts = await Product.countDocuments();
+    const totalRiders = await Rider.countDocuments();
+    const pendingRiders = await Rider.countDocuments({ status: 'pending' });
+    const totalRevenue = (await Order.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]))[0]?.total || 0;
+    
+    res.json({
+      totalOrders,
+      totalProducts,
+      totalRiders,
+      pendingRiders,
+      totalRevenue
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching dashboard stats', error: err.message });
   }
 });
 
