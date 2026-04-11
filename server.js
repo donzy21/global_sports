@@ -29,6 +29,25 @@ app.get('/ping', (req, res) => {
   res.status(200).send('Server is awake');
 });
 
+// ================= API ROOT =================
+app.get('/api', (req, res) => {
+  res.json({
+    service: 'Global Sports Backend API',
+    status: 'ok',
+    health: '/api/health',
+    message: 'Use specific API routes like /api/products, /api/orders, /api/delivery/quote'
+  });
+});
+
+app.get('/api/', (req, res) => {
+  res.json({
+    service: 'Global Sports Backend API',
+    status: 'ok',
+    health: '/api/health',
+    message: 'Use specific API routes like /api/products, /api/orders, /api/delivery/quote'
+  });
+});
+
 // ================= CONFIGURATION =================
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;

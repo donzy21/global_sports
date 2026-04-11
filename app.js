@@ -37,15 +37,41 @@ try { return JSON.parse(text); }
 catch { return { message: text }; }
 }
 
+function looksLikeProductsPayload(data) {
+if (!Array.isArray(data)) return false;
+if (!data.length) return true;
+const sample = data[0] || {};
+return typeof sample === 'object' && (
+  'name' in sample || 'price' in sample || 'category' in sample
+);
+}
+
+async function fetchProductsFromBase(base) {
+const res = await fetch(`${base}/products`, { cache: 'no-store' });
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+if (!contentType.includes('application/json')) {
+  throw new Error(`Expected JSON but got ${contentType || 'unknown content-type'}`);
+}
+
+const data = await res.json();
+if (!looksLikeProductsPayload(data)) {
+  throw new Error('Response is JSON but not a products payload');
+}
+
+return data;
+}
+
 async function discoverApiUrl() {
 for (const base of getApiCandidates()) {
 try {
-const res = await fetch(`${base}/products`, { cache: 'no-store' });
-if (!res.ok) continue;
+await fetchProductsFromBase(base);
 API_URL = base;
 localStorage.setItem('gs_api_url', API_URL);
 return;
-} catch {
+} catch (err) {
+console.warn(`Skipping API candidate ${base}:`, err.message);
 // Try next candidate URL
 }
 }
@@ -674,17 +700,13 @@ document.getElementById('riderRegisterForm').style.display = formId === 'riderRe
 // ===================== PRODUCTS =====================
 async function fetchProducts() {
 try {
-const res = await fetch(`${API_URL}/products`, { cache: 'no-store' });
-if (!res.ok) throw new Error(`Products request failed (${res.status})`);
-allProducts = await res.json();
+allProducts = await fetchProductsFromBase(API_URL);
 applyProductView();
 } catch (err) {
 console.error('Error fetching products:', err);
 try {
   await discoverApiUrl();
-  const retry = await fetch(`${API_URL}/products`, { cache: 'no-store' });
-  if (!retry.ok) throw new Error(`Retry failed (${retry.status})`);
-  allProducts = await retry.json();
+  allProducts = await fetchProductsFromBase(API_URL);
   applyProductView();
   return;
 } catch (retryErr) {
