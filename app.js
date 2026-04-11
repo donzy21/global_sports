@@ -1,6 +1,21 @@
 ﻿// ===================== CONFIG =====================
+function safeStorageGet(key) {
+try { return localStorage.getItem(key); }
+catch { return null; }
+}
+
+function safeStorageSet(key, value) {
+try { localStorage.setItem(key, value); }
+catch { /* Ignore storage access failures (privacy/tracking restrictions). */ }
+}
+
+function safeStorageRemove(key) {
+try { localStorage.removeItem(key); }
+catch { /* Ignore storage access failures (privacy/tracking restrictions). */ }
+}
+
 let API_URL = (() => {
-const override = localStorage.getItem('gs_api_url');
+const override = safeStorageGet('gs_api_url');
 if (override) return override;
 const host = window.location.hostname;
 if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
@@ -9,7 +24,7 @@ return 'https://global-sports-backend.onrender.com/api';
 const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
 function getApiCandidates() {
-const storedApi = localStorage.getItem('gs_api_url') || null;
+const storedApi = safeStorageGet('gs_api_url') || null;
 const host = String(window.location.hostname || '').toLowerCase();
 const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
 const sameOriginApi = window.location.origin && window.location.origin.startsWith('http')
@@ -68,7 +83,7 @@ for (const base of getApiCandidates()) {
 try {
 await fetchProductsFromBase(base);
 API_URL = base;
-localStorage.setItem('gs_api_url', API_URL);
+safeStorageSet('gs_api_url', API_URL);
 return;
 } catch (err) {
 console.warn(`Skipping API candidate ${base}:`, err.message);
@@ -77,7 +92,7 @@ console.warn(`Skipping API candidate ${base}:`, err.message);
 }
 
 // If none worked, clear stale override so next load can re-discover cleanly.
-localStorage.removeItem('gs_api_url');
+safeStorageRemove('gs_api_url');
 }
 
 function getSocketBase() {
