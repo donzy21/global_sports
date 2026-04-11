@@ -1,15 +1,26 @@
 ﻿require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
 
 // ================= MIDDLEWARE =================
 app.use(cors({ origin: '*' }));
+app.use((req, res, next) => {
+  // Allow resources from this backend to be embedded/loaded by other origins.
+  // If you later serve everything from one site only, change this to `same-site`.
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 app.use(express.json());
 
 // ================= KEEP-ALIVE ROUTE =================
@@ -24,11 +35,20 @@ const MONGO_URI = process.env.MONGO_URI;
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET || process.env.SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
 const RIDER_JWT_SECRET = process.env.RIDER_JWT_SECRET || 'rider_secret_456';
+const SHOP_LOCATION = {
+  // Default base location is Kumasi unless overridden by environment variables.
+  lat: Number(process.env.SHOP_LAT || 6.6885),
+  lng: Number(process.env.SHOP_LNG || -1.6244),
+  address: process.env.SHOP_ADDRESS || 'Global Sports Store, Kumasi'
+};
 
 const TWILIO_ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM;
 const ADMIN_WHATSAPP_TO    = process.env.ADMIN_WHATSAPP_TO;
+const CHAT_RETENTION_DAYS = Math.max(1, Number(process.env.CHAT_RETENTION_DAYS || 90));
+const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
+const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
 
 // ================= DATABASE CONNECTION =================
 mongoose.connect(MONGO_URI)
@@ -49,6 +69,11 @@ const Product = mongoose.model('Product', new mongoose.Schema({
 
 const Order = mongoose.model('Order', new mongoose.Schema({
   reference: String,
+  subtotal: { type: Number, default: 0 },
+  deliveryFee: { type: Number, default: 0 },
+  deliveryDistanceKm: { type: Number, default: 0 },
+  deliveryDurationMin: { type: Number, default: 0 },
+  chatToken: { type: String, default: () => crypto.randomBytes(16).toString('hex'), index: true },
   items:     Array,
   amount:    Number,
   customer: {
@@ -73,6 +98,40 @@ const Order = mongoose.model('Order', new mongoose.Schema({
   date:        { type: Date, default: Date.now }
 }));
 
+const ChatMessage = mongoose.model('ChatMessage', new mongoose.Schema({
+  reference: { type: String, index: true, required: true },
+  senderRole: { type: String, enum: ['customer', 'rider', 'admin', 'system'], required: true },
+  senderId: { type: String, default: null },
+  senderName: { type: String, required: true },
+  text: { type: String, required: true },
+  // TTL index keeps chat history bounded on free-tier MongoDB.
+  createdAt: { type: Date, default: Date.now, expires: CHAT_RETENTION_SECONDS }
+}));
+
+async function runChatRetentionSweep() {
+  try {
+    const cutoff = new Date(Date.now() - CHAT_RETENTION_SECONDS * 1000);
+    const result = await ChatMessage.deleteMany({ createdAt: { $lt: cutoff } });
+    if (result.deletedCount) {
+      console.log(`Chat retention sweep removed ${result.deletedCount} messages older than ${CHAT_RETENTION_DAYS} days`);
+    }
+  } catch (err) {
+    console.warn('Chat retention sweep failed:', err.message);
+  }
+}
+
+async function ensureChatIndexes() {
+  try {
+    await ChatMessage.collection.createIndex({ createdAt: 1 }, {
+      expireAfterSeconds: CHAT_RETENTION_SECONDS,
+      name: 'chat_createdAt_ttl'
+    });
+    console.log(`Chat TTL index ready (${CHAT_RETENTION_DAYS} days retention)`);
+  } catch (err) {
+    console.warn('Chat TTL index setup warning:', err.message);
+  }
+}
+
 const Admin = mongoose.model('Admin', new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true }
@@ -91,6 +150,54 @@ const Rider = mongoose.model('Rider', new mongoose.Schema({
   createdAt:       { type: Date, default: Date.now }
 }));
 
+async function initializeDbMaintenance() {
+  await ensureChatIndexes();
+  await runChatRetentionSweep();
+  setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_MS);
+}
+
+if (mongoose.connection.readyState === 1) {
+  initializeDbMaintenance().catch(err => console.warn('DB maintenance init failed:', err.message));
+} else {
+  mongoose.connection.once('open', () => {
+    initializeDbMaintenance().catch(err => console.warn('DB maintenance init failed:', err.message));
+  });
+}
+
+async function healthHandler(req, res) {
+  const startedAt = Date.now();
+  const stateMap = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const dbState = stateMap[mongoose.connection.readyState] || 'unknown';
+  let db = { ok: false, state: dbState, latencyMs: null, error: null };
+
+  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+    try {
+      await mongoose.connection.db.admin().ping();
+      db.ok = true;
+      db.latencyMs = Date.now() - startedAt;
+    } catch (err) {
+      db.error = err.message;
+    }
+  } else {
+    db.error = 'Database is not connected';
+  }
+
+  const body = {
+    ok: db.ok,
+    service: 'global-sports-backend',
+    timestamp: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
+    env: process.env.NODE_ENV || 'development',
+    db,
+    chatRetentionDays: CHAT_RETENTION_DAYS
+  };
+
+  res.status(db.ok ? 200 : 503).json(body);
+}
+
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
+
 // ================= SSE REAL-TIME =================
 const riderClients = new Map();
 function notifyRiders(event, data) {
@@ -98,6 +205,153 @@ function notifyRiders(event, data) {
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   });
+}
+
+function normalizeLocation(location) {
+  if (!location || location.lat == null || location.lng == null) return null;
+  return { lat: Number(location.lat), lng: Number(location.lng) };
+}
+
+function haversineKm(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const aa = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  return R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+}
+
+async function getRouteMetrics(origin, destination) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`;
+    const response = await axios.get(url, { timeout: 8000 });
+    const route = response.data?.routes?.[0];
+    if (route) {
+      return {
+        distanceKm: route.distance / 1000,
+        durationMin: route.duration / 60
+      };
+    }
+  } catch (err) {
+    console.warn('Route lookup failed, using straight-line fallback:', err.message);
+  }
+
+  const distanceKm = haversineKm(origin, destination);
+  const durationMin = Math.max(5, (distanceKm / 28) * 60);
+  return { distanceKm, durationMin };
+}
+
+function roundToNearestHalf(value) {
+  return Math.round(value * 2) / 2;
+}
+
+function calculateDeliveryFee(distanceKm, durationMin) {
+  // Realistic urban courier pricing for Accra (motorbike delivery)
+  // Tuned to common market bands: short trips ~12-16 GHS, medium ~16-24 GHS.
+  const safeDistance = Math.max(0, Number(distanceKm) || 0);
+  const safeDuration = Math.max(1, Number(durationMin) || 1);
+
+  const pickupFee = 7.0;
+  const serviceFee = 2.0;
+  const minimumFare = 12.0;
+
+  // Tiered per-km rates
+  const firstBandKm = 2;
+  const secondBandKm = 8;
+  const firstBandRate = 2.2;   // 0-2 km
+  const secondBandRate = 1.6;  // 2-8 km
+  const longHaulRate = 1.2;    // 8+ km
+
+  const firstBandDistance = Math.min(safeDistance, firstBandKm);
+  const secondBandDistance = Math.max(0, Math.min(safeDistance, secondBandKm) - firstBandKm);
+  const longHaulDistance = Math.max(0, safeDistance - secondBandKm);
+
+  const distanceComponent =
+    (firstBandDistance * firstBandRate) +
+    (secondBandDistance * secondBandRate) +
+    (longHaulDistance * longHaulRate);
+
+  // Traffic surcharge applies only for delay beyond baseline travel expectation.
+  const baselineDuration = Math.max(8, safeDistance * 3.2);
+  const trafficDelayMin = Math.max(0, safeDuration - baselineDuration);
+  const trafficSurcharge = Math.min(6, trafficDelayMin * 0.12);
+
+  // Peak period multiplier (moderate, avoids price shocks)
+  const hour = new Date().getHours();
+  const isPeakHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 20);
+  const peakMultiplier = isPeakHour ? 1.1 : 1.0;
+
+  const rawFee = (pickupFee + serviceFee + distanceComponent + trafficSurcharge) * peakMultiplier;
+  const finalFee = Math.max(minimumFare, rawFee);
+
+  return roundToNearestHalf(finalFee);
+}
+
+async function buildDeliveryQuote(customerLocation, adminLocation = null) {
+  const destination = normalizeLocation(customerLocation);
+  if (!destination) {
+    return { distanceKm: 0, durationMin: 0, deliveryFee: 0, requiresLocation: true };
+  }
+
+  const origin = normalizeLocation(adminLocation) || normalizeLocation(SHOP_LOCATION);
+  const { distanceKm, durationMin } = await getRouteMetrics(origin, destination);
+  const deliveryFee = calculateDeliveryFee(distanceKm, durationMin);
+
+  return {
+    distanceKm: Number(distanceKm.toFixed(2)),
+    durationMin: Math.max(1, Math.round(durationMin)),
+    deliveryFee,
+    requiresLocation: false,
+    shopLocation: SHOP_LOCATION,
+    adminLocation: origin
+  };
+}
+
+function chatRoom(reference) {
+  return `order:${reference}`;
+}
+
+async function authorizeChatAccess(reference, access = {}) {
+  const order = await Order.findOne({ reference });
+  if (!order) return { ok: false, status: 404, message: 'Order not found' };
+
+  if (!order.chatToken) {
+    order.chatToken = crypto.randomBytes(16).toString('hex');
+    await order.save();
+  }
+
+  if (access.role === 'customer') {
+    if (!access.chatToken || access.chatToken !== order.chatToken) {
+      return { ok: false, status: 401, message: 'Invalid chat token' };
+    }
+    return { ok: true, order };
+  }
+
+  if (access.role === 'rider') {
+    try {
+      const rider = jwt.verify(access.token, RIDER_JWT_SECRET);
+      if (order.riderId && String(order.riderId) !== String(rider.id)) {
+        return { ok: false, status: 403, message: 'This order is not assigned to you' };
+      }
+      return { ok: true, order, rider };
+    } catch {
+      return { ok: false, status: 401, message: 'Invalid rider token' };
+    }
+  }
+
+  if (access.role === 'admin') {
+    try {
+      const admin = jwt.verify(access.token, JWT_SECRET);
+      return { ok: true, order, admin };
+    } catch {
+      return { ok: false, status: 401, message: 'Invalid admin token' };
+    }
+  }
+
+  return { ok: false, status: 400, message: 'Unsupported chat role' };
 }
 
 // ================= AUTH MIDDLEWARE (FIXED) =================
@@ -221,24 +475,42 @@ app.delete('/api/products/:id', authenticate, async (req, res) => {
 app.post('/api/orders/verify', async (req, res) => {
   const { reference, cart, customer } = req.body;
   try {
+    if (!customer?.location) {
+      return res.status(400).json({ message: 'Please pin your delivery location so we can calculate distance-based delivery fees.' });
+    }
+    const subtotal = cart.reduce((a, b) => a + Number(b.price || 0), 0);
+    const deliveryQuote = await buildDeliveryQuote(customer.location);
+    const expectedTotal = subtotal + deliveryQuote.deliveryFee;
+
     const response = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
     );
     if (response.data.data.status === 'success') {
-      const amount = cart.reduce((a, b) => a + b.price, 0);
+      const paidAmount = Number(response.data.data.amount || 0) / 100;
+      if (Math.abs(paidAmount - expectedTotal) > 0.5) {
+        return res.status(400).json({ message: 'Payment amount does not match the quoted delivery total.' });
+      }
       const order = await Order.create({
         reference,
+        subtotal,
+        deliveryFee: deliveryQuote.deliveryFee,
+        deliveryDistanceKm: deliveryQuote.distanceKm,
+        deliveryDurationMin: deliveryQuote.durationMin,
+        chatToken: crypto.randomBytes(16).toString('hex'),
         items: cart,
-        amount,
+        amount: expectedTotal,
         customer,
         status: 'paid'
       });
       await sendWhatsAppNotification(order);
       notifyRiders('new_order', {
         orderId:  order._id,
+        reference: order.reference,
         items:    order.items,
         amount:   order.amount,
+        deliveryFee: order.deliveryFee,
+        distanceKm: order.deliveryDistanceKm,
         customer: {
           name:     order.customer.name,
           phone:    order.customer.phone,
@@ -247,7 +519,7 @@ app.post('/api/orders/verify', async (req, res) => {
         },
         date: order.date
       });
-      return res.json({ message: 'Payment verified & order saved', order });
+      return res.json({ message: 'Payment verified & order saved', order, deliveryQuote });
     } else {
       return res.json({ message: 'Payment failed or incomplete' });
     }
@@ -260,6 +532,31 @@ app.post('/api/orders/verify', async (req, res) => {
 app.get('/api/orders', authenticate, async (req, res) => {
   const orders = await Order.find().sort({ date: -1 });
   res.json(orders);
+});
+
+// ================= DELIVERY QUOTE =================
+app.get('/api/delivery/quote', async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const originLat = req.query.originLat == null ? null : Number(req.query.originLat);
+    const originLng = req.query.originLng == null ? null : Number(req.query.originLng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      return res.status(400).json({ message: 'lat and lng are required' });
+    }
+    let adminOrigin = null;
+    if (originLat != null || originLng != null) {
+      if (Number.isNaN(originLat) || Number.isNaN(originLng)) {
+        return res.status(400).json({ message: 'originLat and originLng must both be valid numbers when provided' });
+      }
+      adminOrigin = { lat: originLat, lng: originLng };
+    }
+
+    const quote = await buildDeliveryQuote({ lat, lng }, adminOrigin);
+    res.json(quote);
+  } catch (err) {
+    res.status(500).json({ message: 'Error calculating delivery quote', error: err.message });
+  }
 });
 
 // ================= RIDER SSE =================
@@ -287,12 +584,22 @@ app.get('/api/track/:reference', async (req, res) => {
   try {
     const order = await Order.findOne({ reference: req.params.reference });
     if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order.chatToken) {
+      order.chatToken = crypto.randomBytes(16).toString('hex');
+      await order.save();
+    }
     res.json({
       reference:       order.reference,
       status:          order.status,
       riderName:       order.riderName || null,
       riderLocation:   order.riderLocation || null,
       customerLocation: order.customer?.location || null,
+      customerName:    order.customer?.name || null,
+      subtotal:        order.subtotal || 0,
+      deliveryFee:     order.deliveryFee || 0,
+      deliveryDistanceKm: order.deliveryDistanceKm || 0,
+      deliveryDurationMin: order.deliveryDurationMin || 0,
+      chatToken:       order.chatToken || null,
       amount:          order.amount,
       items:           order.items,
       date:            order.date
@@ -434,6 +741,177 @@ app.put('/api/riders/location', authenticateRider, async (req, res) => {
   }
 });
 
+// ================= CHAT =================
+app.get('/api/chat/:reference/messages', async (req, res) => {
+  try {
+    const access = {
+      role: req.query.role || 'customer',
+      token: req.query.token || req.headers.authorization?.replace(/^Bearer\s+/i, ''),
+      chatToken: req.query.chatToken || req.query.token
+    };
+    const auth = await authorizeChatAccess(req.params.reference, access);
+    if (!auth.ok) return res.status(auth.status).json({ message: auth.message });
+
+    const messages = await ChatMessage.find({ reference: req.params.reference }).sort({ createdAt: 1 }).limit(200);
+    res.json({
+      reference: req.params.reference,
+      messages: messages.map(msg => ({
+        id: msg._id,
+        senderRole: msg.senderRole,
+        senderName: msg.senderName,
+        text: msg.text,
+        createdAt: msg.createdAt
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Error loading messages', error: err.message });
+  }
+});
+
+app.post('/api/chat/:reference/messages', async (req, res) => {
+  try {
+    const { senderRole, senderName, text, chatToken, token } = req.body;
+    const access = { role: senderRole, token, chatToken };
+    const auth = await authorizeChatAccess(req.params.reference, access);
+    if (!auth.ok) return res.status(auth.status).json({ message: auth.message });
+
+    const cleanText = String(text || '').trim();
+    if (!cleanText) return res.status(400).json({ message: 'Message cannot be empty' });
+
+    const message = await ChatMessage.create({
+      reference: req.params.reference,
+      senderRole,
+      senderId: auth.rider?.id || auth.admin?.id || null,
+      senderName: String(senderName || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
+      text: cleanText
+    });
+
+    const payload = {
+      id: message._id,
+      reference: message.reference,
+      senderRole: message.senderRole,
+      senderName: message.senderName,
+      text: message.text,
+      createdAt: message.createdAt
+    };
+
+    io.to(chatRoom(req.params.reference)).emit('chat:message', payload);
+    res.json({ message: 'Message sent', chatMessage: payload });
+  } catch (err) {
+    res.status(500).json({ message: 'Error sending message', error: err.message });
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('🔌 New Socket.IO connection:', socket.id);
+  
+  socket.on('chat:join', async (payload = {}, ack) => {
+    try {
+      const reference = String(payload.reference || '').trim();
+      const role = String(payload.role || '').trim();
+      console.log(`📨 [${socket.id}] chat:join - reference: ${reference}, role: ${role}`);
+      
+      const auth = await authorizeChatAccess(reference, {
+        role,
+        token: payload.token,
+        chatToken: payload.chatToken
+      });
+      if (!auth.ok) {
+        console.error(`❌ [${socket.id}] Auth failed: ${auth.message}`);
+        if (typeof ack === 'function') ack({ ok: false, message: auth.message });
+        return;
+      }
+
+      socket.data.chat = {
+        reference,
+        role,
+        name: String(payload.name || auth.order?.customer?.name || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
+        token: payload.token || null,
+        chatToken: payload.chatToken || null
+      };
+      socket.join(chatRoom(reference));
+      console.log(`✅ [${socket.id}] Joined room: ${chatRoom(reference)}`);
+
+      const messages = await ChatMessage.find({ reference }).sort({ createdAt: 1 }).limit(200);
+      console.log(`📤 [${socket.id}] Sending ${messages.length} messages to history`);
+      
+      socket.emit('chat:history', {
+        reference,
+        messages: messages.map(msg => ({
+          id: msg._id,
+          senderRole: msg.senderRole,
+          senderName: msg.senderName,
+          text: msg.text,
+          createdAt: msg.createdAt
+        }))
+      });
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err) {
+      console.error(`❌ [${socket.id}] Error in chat:join:`, err.message);
+      if (typeof ack === 'function') ack({ ok: false, message: err.message });
+    }
+  });
+
+  socket.on('chat:message', async (payload = {}, ack) => {
+    try {
+      const chat = socket.data.chat;
+      if (!chat?.reference) {
+        console.error(`❌ [${socket.id}] Not in a chat room`);
+        if (typeof ack === 'function') ack({ ok: false, message: 'Join a chat room first' });
+        return;
+      }
+
+      const cleanText = String(payload.text || '').trim();
+      if (!cleanText) {
+        if (typeof ack === 'function') ack({ ok: false, message: 'Message cannot be empty' });
+        return;
+      }
+
+      console.log(`💬 [${socket.id}] Sending message to ${chat.reference}: "${cleanText.substring(0, 50)}..."`);
+      
+      const auth = await authorizeChatAccess(chat.reference, {
+        role: chat.role,
+        token: chat.token,
+        chatToken: chat.chatToken
+      });
+      if (!auth.ok) {
+        console.error(`❌ [${socket.id}] Re-auth failed: ${auth.message}`);
+        if (typeof ack === 'function') ack({ ok: false, message: auth.message });
+        return;
+      }
+
+      const message = await ChatMessage.create({
+        reference: chat.reference,
+        senderRole: chat.role,
+        senderId: auth.rider?.id || auth.admin?.id || null,
+        senderName: String(payload.senderName || chat.name || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
+        text: cleanText
+      });
+
+      const outgoing = {
+        id: message._id,
+        reference: message.reference,
+        senderRole: message.senderRole,
+        senderName: message.senderName,
+        text: message.text,
+        createdAt: message.createdAt
+      };
+
+      console.log(`📡 [${socket.id}] Broadcasting message to room: ${chatRoom(chat.reference)}`);
+      io.to(chatRoom(chat.reference)).emit('chat:message', outgoing);
+      if (typeof ack === 'function') ack({ ok: true, message: outgoing });
+    } catch (err) {
+      console.error(`❌ [${socket.id}] Error in chat:message:`, err.message);
+      if (typeof ack === 'function') ack({ ok: false, message: err.message });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`👋 Socket disconnected: ${socket.id}`);
+  });
+});
+
 // ================= ADMIN GET ALL RIDERS =================
 app.get('/api/admin/riders', authenticate, async (req, res) => {
   const riders = await Rider.find().sort({ createdAt: -1 });
@@ -486,4 +964,4 @@ app.get('/api/admin/dashboard/stats', authenticate, async (req, res) => {
 });
 
 // ================= SERVER START =================
-app.listen(PORT, () => console.log(`🚀 Global Sports Backend running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Global Sports Backend running on port ${PORT}`));

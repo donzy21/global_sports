@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+
   <!-- Fonts: Bebas Neue (display) + DM Sans (body) -->
 
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
@@ -80,25 +82,38 @@
     <p class="hero-sub">Premium sports apparel delivered across Ghana</p>
   </div>
 
-  <div class="filter-bar">
-    <button class="filter-chip active" onclick="filterCategory('', this)">All</button>
-    <button class="filter-chip" onclick="filterCategory('Football', this)">Football</button>
-    <button class="filter-chip" onclick="filterCategory('Running', this)">Running</button>
-    <button class="filter-chip" onclick="filterCategory('Gym', this)">Gym</button>
-    <button class="filter-chip" onclick="filterCategory('Boxing', this)">Boxing</button>
-    <button class="filter-chip" onclick="filterCategory('Yoga', this)">Yoga</button>
-    <button class="filter-chip" onclick="filterCategory('Accessories', this)">Accessories</button>
-  </div>
-
-
-  <div class="search-bar-wrapper">
-    <div class="search-bar">
-      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input id="searchInput" type="text" placeholder="Search jerseys, boots, gym gear..." 
-        oninput="searchProducts(this.value); document.getElementById('searchClear').style.display=this.value?'flex':'none'" 
-        autocomplete="off">
-      <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&#10005;</button>
+  <div class="discover-toolbar">
+    <div class="filter-bar">
+      <button class="filter-chip active" onclick="filterCategory('', this)">All</button>
+      <button class="filter-chip" onclick="filterCategory('Football', this)">Football</button>
+      <button class="filter-chip" onclick="filterCategory('Running', this)">Running</button>
+      <button class="filter-chip" onclick="filterCategory('Gym', this)">Gym</button>
+      <button class="filter-chip" onclick="filterCategory('Boxing', this)">Boxing</button>
+      <button class="filter-chip" onclick="filterCategory('Yoga', this)">Yoga</button>
+      <button class="filter-chip" onclick="filterCategory('Accessories', this)">Accessories</button>
     </div>
+
+    <div class="search-sort-row">
+      <div class="search-bar-wrapper">
+        <div class="search-bar">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="searchInput" type="text" placeholder="Search jerseys, boots, gym gear..."
+            oninput="searchProducts(this.value); document.getElementById('searchClear').style.display=this.value?'flex':'none'"
+            autocomplete="off">
+          <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&#10005;</button>
+        </div>
+      </div>
+      <div class="sort-wrap">
+        <label for="sortSelect">Sort</label>
+        <select id="sortSelect" onchange="sortProducts(this.value)">
+          <option value="featured">Featured</option>
+          <option value="priceLow">Price: Low to High</option>
+          <option value="priceHigh">Price: High to Low</option>
+          <option value="nameAZ">Name: A-Z</option>
+        </select>
+      </div>
+    </div>
+    <div class="shop-meta" id="shopMeta">Loading products...</div>
   </div>
   <div class="products-grid" id="productsGrid">
     <div class="skeleton-card"></div>
@@ -146,6 +161,10 @@
       <span><span class="legend-dot rider"></span> Rider</span>
       <span><span class="legend-dot customer"></span> You</span>
     </div>
+  </div>
+
+  <div class="track-chat-actions" id="trackChatActions" style="display:none">
+    <button class="submit-btn chat-launch-btn" onclick="openCustomerChatFromTrack()">Open Live Chat</button>
   </div>
 </div>
 
@@ -304,6 +323,22 @@
       <input id="custAddress" type="text" placeholder="e.g. 12 Kanda Highway, Accra">
     </div>
 
+    <div class="delivery-quote-card" id="deliveryQuoteCard">
+      <div class="delivery-quote-line">
+        <span>Distance</span>
+        <strong id="deliveryDistance">Pin your location</strong>
+      </div>
+      <div class="delivery-quote-line">
+        <span>Delivery fee</span>
+        <strong id="deliveryFee">GHS 0.00</strong>
+      </div>
+      <div class="delivery-quote-line total">
+        <span>Order total</span>
+        <strong id="deliveryGrandTotal">GHS 0.00</strong>
+      </div>
+      <p class="delivery-quote-note" id="deliveryQuoteNote">Automatic delivery pricing is calculated from your pinned location.</p>
+    </div>
+
 <!-- OpenStreetMap Location Picker (free) -->
 <div class="form-group">
   <label>📍 Pin Your Delivery Location</label>
@@ -330,6 +365,23 @@
     <div id="riderOrderDetail"></div>
     <div id="riderOrderMap" class="map-picker" style="margin-top:16px"></div>
     <div class="rider-modal-actions" id="riderModalActions"></div>
+  </div>
+</div>
+
+<!-- ======== LIVE CHAT MODAL ======== -->
+
+<div class="modal-overlay" id="chatOverlay" onclick="handleChatOverlayClick(event)">
+  <div class="modal chat-modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="chatModalTitle">Live Chat</h3>
+      <button class="close-btn" onclick="closeChatModal()">✕</button>
+    </div>
+    <p class="chat-context" id="chatContext"></p>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-compose">
+      <input id="chatInput" type="text" placeholder="Type your message" onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage();}">
+      <button class="submit-btn chat-send-btn" onclick="sendChatMessage()">Send</button>
+    </div>
   </div>
 </div>
 
