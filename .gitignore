@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 *.log
 .env.local
+create_test_order.js
+test_chat.js
+test_chat_real.js
