@@ -223,7 +223,7 @@ nav { display: flex; align-items: center; gap: 8px; }
   margin: 12px auto 0;
   padding: 0 24px;
   display: grid;
-  grid-template-columns: 1fr 230px;
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: end;
 }

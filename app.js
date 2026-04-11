@@ -10,16 +10,22 @@ const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
 function getApiCandidates() {
 const storedApi = localStorage.getItem('gs_api_url') || null;
+const host = String(window.location.hostname || '').toLowerCase();
+const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
 const sameOriginApi = window.location.origin && window.location.origin.startsWith('http')
 ? `${window.location.origin}/api`
 : null;
+
+const localCandidates = isLocal ? ['http://localhost:5001/api', 'http://localhost:5000/api'] : [];
+const storedIsLocalOnly = storedApi && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?/i.test(storedApi);
+const safeStoredApi = (!isLocal && storedIsLocalOnly) ? null : storedApi;
+
 const list = [
 sameOriginApi,
-'http://localhost:5001/api',
-'http://localhost:5000/api',
-storedApi,
+safeStoredApi,
 API_URL,
-'https://global-sports-backend.onrender.com/api'
+'https://global-sports-backend.onrender.com/api',
+...localCandidates
 ].filter(Boolean);
 return [...new Set(list)];
 }
@@ -34,7 +40,7 @@ catch { return { message: text }; }
 async function discoverApiUrl() {
 for (const base of getApiCandidates()) {
 try {
-const res = await fetch(`${base}/products`);
+const res = await fetch(`${base}/products`, { cache: 'no-store' });
 if (!res.ok) continue;
 API_URL = base;
 localStorage.setItem('gs_api_url', API_URL);
@@ -43,6 +49,9 @@ return;
 // Try next candidate URL
 }
 }
+
+// If none worked, clear stale override so next load can re-discover cleanly.
+localStorage.removeItem('gs_api_url');
 }
 
 function getSocketBase() {
@@ -665,13 +674,25 @@ document.getElementById('riderRegisterForm').style.display = formId === 'riderRe
 // ===================== PRODUCTS =====================
 async function fetchProducts() {
 try {
-const res = await fetch(`${API_URL}/products`);
+const res = await fetch(`${API_URL}/products`, { cache: 'no-store' });
+if (!res.ok) throw new Error(`Products request failed (${res.status})`);
 allProducts = await res.json();
 applyProductView();
 } catch (err) {
 console.error('Error fetching products:', err);
+try {
+  await discoverApiUrl();
+  const retry = await fetch(`${API_URL}/products`, { cache: 'no-store' });
+  if (!retry.ok) throw new Error(`Retry failed (${retry.status})`);
+  allProducts = await retry.json();
+  applyProductView();
+  return;
+} catch (retryErr) {
+  console.error('Retry fetching products failed:', retryErr);
+}
+
 document.getElementById('productsGrid').innerHTML =
-`<div class="empty-state"><p>Could not load products. Is the server running?</p></div>`;
+`<div class="empty-state"><p>Could not load products right now. Check backend deployment/API URL.</p></div>`;
 }
 }
 
@@ -782,7 +803,8 @@ function searchProducts(query) {
 function clearSearch() {
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
-  document.getElementById('searchClear').style.display = 'none';
+  const clearBtn = document.getElementById('searchClear');
+  if (clearBtn) clearBtn.style.display = 'none';
   currentSearchQuery = '';
   applyProductView();
 }
