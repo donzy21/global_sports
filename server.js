@@ -227,6 +227,30 @@ function notifyRiders(event, data) {
   });
 }
 
+function notifyRiderById(riderId, event, data) {
+  if (!riderId) return;
+  const res = riderClients.get(String(riderId));
+  if (!res) return;
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function notifyAssignedRiderChatMessage(reference, payload = {}) {
+  try {
+    const order = await findLatestOrderByReference(reference);
+    if (!order?.riderId) return;
+    notifyRiderById(String(order.riderId), 'chat_message', {
+      reference,
+      senderRole: payload.senderRole || null,
+      senderName: payload.senderName || null,
+      text: payload.text || '',
+      createdAt: payload.createdAt || new Date().toISOString()
+    });
+  } catch (err) {
+    console.warn('Failed to push rider chat notification:', err.message);
+  }
+}
+
 function normalizeLocation(location) {
   if (!location || location.lat == null || location.lng == null) return null;
   return { lat: Number(location.lat), lng: Number(location.lng) };
@@ -638,6 +662,11 @@ app.get('/api/track/:reference', async (req, res) => {
       order.chatToken = crypto.randomBytes(16).toString('hex');
       await order.save();
     }
+    const [chatMessageCount, latestChatMessage] = await Promise.all([
+      ChatMessage.countDocuments({ reference: order.reference }),
+      ChatMessage.findOne({ reference: order.reference }).sort({ createdAt: -1 })
+    ]);
+
     res.json({
       reference:       order.reference,
       status:          order.status,
@@ -650,6 +679,9 @@ app.get('/api/track/:reference', async (req, res) => {
       deliveryDistanceKm: order.deliveryDistanceKm || 0,
       deliveryDurationMin: order.deliveryDurationMin || 0,
       chatToken:       order.chatToken || null,
+      chatMessageCount,
+      lastChatMessageRole: latestChatMessage?.senderRole || null,
+      lastChatMessageAt: latestChatMessage?.createdAt || null,
       amount:          order.amount,
       items:           order.items,
       date:            order.date
@@ -847,6 +879,9 @@ app.post('/api/chat/:reference/messages', async (req, res) => {
     };
 
     io.to(chatRoom(req.params.reference)).emit('chat:message', payload);
+    if (payload.senderRole === 'customer') {
+      notifyAssignedRiderChatMessage(req.params.reference, payload);
+    }
     res.json({ message: 'Message sent', chatMessage: payload });
   } catch (err) {
     res.status(500).json({ message: 'Error sending message', error: err.message });
@@ -979,6 +1014,9 @@ io.on('connection', (socket) => {
 
       console.log(`📡 [${socket.id}] Broadcasting message to room: ${chatRoom(chat.reference)}`);
       io.to(chatRoom(chat.reference)).emit('chat:message', outgoing);
+      if (outgoing.senderRole === 'customer') {
+        notifyAssignedRiderChatMessage(chat.reference, outgoing);
+      }
       if (typeof ack === 'function') ack({ ok: true, message: outgoing });
     } catch (err) {
       console.error(`❌ [${socket.id}] Error in chat:message:`, err.message);

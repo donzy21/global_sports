@@ -326,6 +326,34 @@ renotify: true
 } catch {
 // Ignore browser notification failures.
 }
+
+function totalUnreadChatCount() {
+let total = 0;
+chatUnreadCounts.forEach((count) => {
+  total += Number(count) || 0;
+});
+return Math.max(0, total);
+}
+
+function updateUnreadBadgeElement(id, count) {
+const el = document.getElementById(id);
+if (!el) return;
+const safeCount = Math.max(0, Number(count) || 0);
+if (safeCount > 0) {
+  el.textContent = safeCount > 99 ? '99+' : String(safeCount);
+  el.style.display = 'inline-flex';
+} else {
+  el.textContent = '0';
+  el.style.display = 'none';
+}
+}
+
+function refreshGlobalChatBadges() {
+const total = totalUnreadChatCount();
+updateUnreadBadgeElement('trackChatAlertBadge', total);
+updateUnreadBadgeElement('riderChatAlertBadge', total);
+updateUnreadBadgeElement('myDeliveriesChatCount', total);
+}
 }
 }
 
@@ -378,6 +406,39 @@ btn.textContent = formatChatButtonLabel(base, getChatUnreadCount(reference));
 function refreshChatUnreadIndicators() {
 refreshTrackChatUnreadIndicator();
 refreshRiderChatUnreadIndicators();
+refreshGlobalChatBadges();
+}
+
+function handleTrackChatMeta(reference, messageCount, lastSenderRole, source = 'poll') {
+if (!reference) return;
+const nextCount = Math.max(0, Number(messageCount) || 0);
+const prevCount = chatMessageTotals.get(reference) || 0;
+chatMessageTotals.set(reference, nextCount);
+
+if (nextCount <= prevCount) return;
+const delta = nextCount - prevCount;
+const isIncoming = String(lastSenderRole || '') !== 'customer';
+const isModalViewingThisChat = chatModalOpen && activeChat?.reference === reference;
+if (!isIncoming || isModalViewingThisChat) return;
+
+incrementChatUnreadCount(reference);
+if (delta > 1) {
+  setChatUnreadCount(reference, getChatUnreadCount(reference) + (delta - 1));
+}
+
+showToast(source === 'poll' ? 'New message from rider' : 'New message', 'success');
+playChatNotificationTone();
+if (document.hidden && canShowBrowserNotifications()) {
+  try {
+    new Notification('New message from rider', {
+      body: 'Open chat to view the latest update.',
+      tag: `chat-${reference}`,
+      renotify: true
+    });
+  } catch {
+    // Ignore browser notification failures.
+  }
+}
 }
 
 function buildChatHistoryUrl(context) {
@@ -406,6 +467,9 @@ if (context?.role === 'customer' && data?.chatToken && context?.reference) {
   }
 }
 renderChatHistory(data?.messages || []);
+if (context?.reference) {
+  chatMessageTotals.set(context.reference, Array.isArray(data?.messages) ? data.messages.length : 0);
+}
 } catch (err) {
 const isInvalidToken = String(err?.message || '').toLowerCase().includes('invalid chat token');
 if (allowRetry && context?.role === 'customer' && isInvalidToken) {
@@ -580,6 +644,9 @@ if (!chatSubscriptionContext || payload.reference !== chatSubscriptionContext.re
 console.log('💬 New message from socket:', payload.senderName);
 const appended = appendChatMessageUnique(payload);
 if (!appended) return;
+
+const currentTotal = chatMessageTotals.get(payload.reference) || 0;
+chatMessageTotals.set(payload.reference, currentTotal + 1);
 
 const isIncoming = (payload.senderRole || '') !== (chatSubscriptionContext.role || '');
 const isModalViewingThisChat = chatModalOpen && activeChat?.reference === payload.reference;
@@ -756,6 +823,7 @@ let chatModalOpen = false;
 let chatSubscriptionContext = null;
 let chatIsJoined = false;
 const chatUnreadCounts = new Map();
+const chatMessageTotals = new Map();
 const chatSeenMessageKeys = new Set();
 // Tracking state
 let trackMap         = null;
@@ -1502,6 +1570,7 @@ return await res.json();
 
 function renderTrackResult(data) {
 currentTrackData = data;
+handleTrackChatMeta(data.reference, data.chatMessageCount, data.lastChatMessageRole, 'poll');
 // Status badge
 document.getElementById('trackRefDisplay').textContent = currentTrackRef;
 const statusEl = document.getElementById('trackStatusBadge');
@@ -1828,6 +1897,41 @@ const { orderId } = JSON.parse(e.data);
 // Remove from list if showing
 const el = document.getElementById(`ro-${orderId}`);
 if (el) el.remove();
+});
+
+riderSSE.addEventListener('chat_message', (e) => {
+  try {
+    const payload = JSON.parse(e.data || '{}');
+    if (!payload?.reference) return;
+
+    const viewingSameChat = chatModalOpen && activeChat?.reference === payload.reference && (activeChat?.role || '') === 'rider';
+    if (!viewingSameChat) {
+      incrementChatUnreadCount(payload.reference);
+    }
+
+    if ((payload.senderRole || '') === 'customer' && !viewingSameChat) {
+      const sender = payload.senderName || 'Customer';
+      showToast(`New message from ${sender}`, 'success');
+      playChatNotificationTone();
+      if (document.hidden && canShowBrowserNotifications()) {
+        try {
+          new Notification(`New message from ${sender}`, {
+            body: String(payload.text || '').slice(0, 140),
+            tag: `chat-${payload.reference}`,
+            renotify: true
+          });
+        } catch {
+          // Ignore browser notification failures.
+        }
+      }
+    }
+
+    if (document.getElementById('riderMine')?.classList.contains('active')) {
+      loadMyOrders();
+    }
+  } catch (err) {
+    console.warn('Chat SSE parse error:', err.message);
+  }
 });
 
 riderSSE.onerror = (e) => {
