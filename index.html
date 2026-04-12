@@ -138,6 +138,16 @@
         <button class="submit-btn track-go-btn" onclick="trackOrder()">Track</button>
       </div>
       <p class="error-msg" id="trackError"></p>
+
+      <div class="recent-chat-card" id="savedChatsCard" style="display:none">
+        <div class="recent-chat-head">
+          <div>
+            <div class="recent-chat-label">Saved chats</div>
+            <div class="recent-chat-value" id="recentChatRef">Track an order once to save its chat here</div>
+          </div>
+        </div>
+        <div class="saved-chat-list" id="savedChatList"></div>
+      </div>
     </div>
 
 <!-- Tracking Result -->
@@ -323,7 +333,7 @@
     </div>
     <div class="form-group">
       <label>Delivery Address</label>
-      <input id="custAddress" type="text" placeholder="e.g. 12 Kanda Highway, Accra">
+      <input id="custAddress" type="text" placeholder="e.g. shop pickup or 12 Kanda Highway, Accra">
     </div>
 
     <div class="delivery-quote-card" id="deliveryQuoteCard">
@@ -336,18 +346,19 @@
         <strong id="deliveryFee">GHS 0.00</strong>
       </div>
       <div class="delivery-quote-line total">
-        <span>Order total</span>
+        <span>Pay online now</span>
         <strong id="deliveryGrandTotal">GHS 0.00</strong>
       </div>
-      <p class="delivery-quote-note" id="deliveryQuoteNote">Automatic delivery pricing is calculated from your pinned location.</p>
+      <p class="delivery-quote-note" id="deliveryQuoteNote">Delivery fee is shown for cash-on-delivery payment to the rider.</p>
     </div>
 
 <!-- OpenStreetMap Location Picker (free) -->
 <div class="form-group">
   <label>📍 Pin Your Delivery Location</label>
   <button class="location-btn" onclick="getMyLocation()">Use My Current Location</button>
+  <button class="location-btn secondary" onclick="useShopPickup()" style="margin-top:10px">Pickup at the shop - no delivery fee</button>
   <div id="mapPicker" class="map-picker"></div>
-  <p class="location-hint" id="locationHint">Click the map or use button above to set delivery location</p>
+  <p class="location-hint" id="locationHint">Click the map, use your location, or select shop pickup</p>
 </div>
 
 <p class="error-msg" id="checkoutError"></p>
@@ -380,6 +391,9 @@
       <button class="close-btn" onclick="closeChatModal()">✕</button>
     </div>
     <p class="chat-context" id="chatContext"></p>
+    <div class="chat-tools" id="chatTools" style="display:none">
+      <button class="chat-delete-btn" id="chatDeleteBtn" onclick="deleteActiveChatHistory()">Delete Chat</button>
+    </div>
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-compose">
       <input id="chatInput" type="text" placeholder="Type your message" onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage();}">

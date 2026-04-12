@@ -55,11 +55,12 @@ const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET || process.env.SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
 const RIDER_JWT_SECRET = process.env.RIDER_JWT_SECRET || 'rider_secret_456';
 const SHOP_LOCATION = {
-  // Default base location is Kumasi unless overridden by environment variables.
-  lat: Number(process.env.SHOP_LAT || 6.6885),
-  lng: Number(process.env.SHOP_LNG || -1.6244),
-  address: process.env.SHOP_ADDRESS || 'Global Sports Store, Kumasi'
+  // Default base location is Kumasi-Tanoso near AAMUSTED unless overridden by environment variables.
+  lat: Number(process.env.SHOP_LAT || 6.7068),
+  lng: Number(process.env.SHOP_LNG || -1.6398),
+  address: process.env.SHOP_ADDRESS || 'Global Sports Store, Kumasi-Tanoso (near AAMUSTED)'
 };
+const PICKUP_RADIUS_KM = Math.max(0.05, Number(process.env.PICKUP_RADIUS_KM || 0.25));
 
 const TWILIO_ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN;
@@ -267,46 +268,69 @@ function roundToNearestHalf(value) {
   return Math.round(value * 2) / 2;
 }
 
-function calculateDeliveryFee(distanceKm, durationMin) {
-  // Realistic urban courier pricing for Accra (motorbike delivery)
-  // Tuned to common market bands: short trips ~12-16 GHS, medium ~16-24 GHS.
+function getRushFee() {
+  const hour = new Date().getHours();
+  if ((hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 20)) return 3;
+  if (hour >= 12 && hour <= 14) return 1;
+  if (hour >= 21 || hour <= 5) return 4;
+  return 0;
+}
+
+function calculateDeliveryPricing(distanceKm, durationMin) {
+  // Ghana-style dispatch pricing for a Kumasi base: simple zone rates most riders understand.
   const safeDistance = Math.max(0, Number(distanceKm) || 0);
   const safeDuration = Math.max(1, Number(durationMin) || 1);
 
-  const pickupFee = 7.0;
-  const serviceFee = 2.0;
-  const minimumFare = 12.0;
+  if (safeDistance <= PICKUP_RADIUS_KM) {
+    return {
+      pricingZone: 'pickup',
+      distanceCharge: 0,
+      rushFee: 0,
+      manualQuote: false,
+      timeNote: 'pickup',
+      deliveryFee: 0
+    };
+  }
 
-  // Tiered per-km rates
-  const firstBandKm = 2;
-  const secondBandKm = 8;
-  const firstBandRate = 2.2;   // 0-2 km
-  const secondBandRate = 1.6;  // 2-8 km
-  const longHaulRate = 1.2;    // 8+ km
+  let pricingZone = 'same-town';
+  let baseFare = 10;
+  let manualQuote = false;
 
-  const firstBandDistance = Math.min(safeDistance, firstBandKm);
-  const secondBandDistance = Math.max(0, Math.min(safeDistance, secondBandKm) - firstBandKm);
-  const longHaulDistance = Math.max(0, safeDistance - secondBandKm);
+  if (safeDistance <= 2.5) {
+    pricingZone = 'same-town';
+    baseFare = 10;
+  } else if (safeDistance <= 5) {
+    pricingZone = 'nearby';
+    baseFare = 12;
+  } else if (safeDistance <= 8) {
+    pricingZone = 'city-wide';
+    baseFare = 15;
+  } else if (safeDistance <= 12) {
+    pricingZone = 'outer-city';
+    baseFare = 20;
+  } else if (safeDistance <= 18) {
+    pricingZone = 'outskirts';
+    baseFare = 25;
+  } else {
+    pricingZone = 'custom-quote';
+    baseFare = 0;
+    manualQuote = true;
+  }
 
-  const distanceComponent =
-    (firstBandDistance * firstBandRate) +
-    (secondBandDistance * secondBandRate) +
-    (longHaulDistance * longHaulRate);
+  const rushFee = getRushFee();
+  const trafficFee = safeDuration > 45 ? 2 : 0;
+  const timeNote = safeDuration > 60 ? 'long-route' : 'standard';
+  const finalFee = manualQuote ? 0 : roundToNearestHalf(baseFare + rushFee + trafficFee);
 
-  // Traffic surcharge applies only for delay beyond baseline travel expectation.
-  const baselineDuration = Math.max(8, safeDistance * 3.2);
-  const trafficDelayMin = Math.max(0, safeDuration - baselineDuration);
-  const trafficSurcharge = Math.min(6, trafficDelayMin * 0.12);
-
-  // Peak period multiplier (moderate, avoids price shocks)
-  const hour = new Date().getHours();
-  const isPeakHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 20);
-  const peakMultiplier = isPeakHour ? 1.1 : 1.0;
-
-  const rawFee = (pickupFee + serviceFee + distanceComponent + trafficSurcharge) * peakMultiplier;
-  const finalFee = Math.max(minimumFare, rawFee);
-
-  return roundToNearestHalf(finalFee);
+  return {
+    pricingZone,
+    distanceCharge: manualQuote ? 0 : roundToNearestHalf(Math.max(0, baseFare - 10)),
+    rushFee,
+    trafficFee,
+    manualQuote,
+    timeNote,
+    deliveryFee: finalFee
+  };
 }
 
 async function buildDeliveryQuote(customerLocation, adminLocation = null) {
@@ -317,12 +341,17 @@ async function buildDeliveryQuote(customerLocation, adminLocation = null) {
 
   const origin = normalizeLocation(adminLocation) || normalizeLocation(SHOP_LOCATION);
   const { distanceKm, durationMin } = await getRouteMetrics(origin, destination);
-  const deliveryFee = calculateDeliveryFee(distanceKm, durationMin);
+  const pricing = calculateDeliveryPricing(distanceKm, durationMin);
 
   return {
     distanceKm: Number(distanceKm.toFixed(2)),
     durationMin: Math.max(1, Math.round(durationMin)),
-    deliveryFee,
+    deliveryFee: pricing.deliveryFee,
+    pricingZone: pricing.pricingZone,
+    distanceCharge: pricing.distanceCharge,
+    rushFee: pricing.rushFee,
+    manualQuote: pricing.manualQuote,
+    pickupRadiusKm: PICKUP_RADIUS_KM,
     requiresLocation: false,
     shopLocation: SHOP_LOCATION,
     adminLocation: origin
@@ -333,8 +362,12 @@ function chatRoom(reference) {
   return `order:${reference}`;
 }
 
+async function findLatestOrderByReference(reference) {
+  return Order.findOne({ reference }).sort({ date: -1, _id: -1 });
+}
+
 async function authorizeChatAccess(reference, access = {}) {
-  const order = await Order.findOne({ reference });
+  const order = await findLatestOrderByReference(reference);
   if (!order) return { ok: false, status: 404, message: 'Order not found' };
 
   if (!order.chatToken) {
@@ -343,10 +376,8 @@ async function authorizeChatAccess(reference, access = {}) {
   }
 
   if (access.role === 'customer') {
-    if (!access.chatToken || access.chatToken !== order.chatToken) {
-      return { ok: false, status: 401, message: 'Invalid chat token' };
-    }
-    return { ok: true, order };
+    // Token mismatches are treated as stale client state; return canonical token so client can self-heal.
+    return { ok: true, order, tokenRefreshed: !access.chatToken || access.chatToken !== order.chatToken };
   }
 
   if (access.role === 'rider') {
@@ -499,7 +530,7 @@ app.post('/api/orders/verify', async (req, res) => {
     }
     const subtotal = cart.reduce((a, b) => a + Number(b.price || 0), 0);
     const deliveryQuote = await buildDeliveryQuote(customer.location);
-    const expectedTotal = subtotal + deliveryQuote.deliveryFee;
+    const expectedOnlinePayment = subtotal;
 
     const response = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
@@ -507,8 +538,8 @@ app.post('/api/orders/verify', async (req, res) => {
     );
     if (response.data.data.status === 'success') {
       const paidAmount = Number(response.data.data.amount || 0) / 100;
-      if (Math.abs(paidAmount - expectedTotal) > 0.5) {
-        return res.status(400).json({ message: 'Payment amount does not match the quoted delivery total.' });
+      if (Math.abs(paidAmount - expectedOnlinePayment) > 0.5) {
+        return res.status(400).json({ message: 'Payment amount does not match the products subtotal.' });
       }
       const order = await Order.create({
         reference,
@@ -518,7 +549,7 @@ app.post('/api/orders/verify', async (req, res) => {
         deliveryDurationMin: deliveryQuote.durationMin,
         chatToken: crypto.randomBytes(16).toString('hex'),
         items: cart,
-        amount: expectedTotal,
+        amount: expectedOnlinePayment,
         customer,
         status: 'paid'
       });
@@ -601,7 +632,7 @@ app.get('/api/riders/notifications', authenticateRider, (req, res) => {
 // ================= TRACKING =================
 app.get('/api/track/:reference', async (req, res) => {
   try {
-    const order = await Order.findOne({ reference: req.params.reference });
+    const order = await findLatestOrderByReference(req.params.reference);
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (!order.chatToken) {
       order.chatToken = crypto.randomBytes(16).toString('hex');
@@ -774,6 +805,7 @@ app.get('/api/chat/:reference/messages', async (req, res) => {
     const messages = await ChatMessage.find({ reference: req.params.reference }).sort({ createdAt: 1 }).limit(200);
     res.json({
       reference: req.params.reference,
+      chatToken: auth.order?.chatToken || null,
       messages: messages.map(msg => ({
         id: msg._id,
         senderRole: msg.senderRole,
@@ -821,6 +853,34 @@ app.post('/api/chat/:reference/messages', async (req, res) => {
   }
 });
 
+app.post('/api/chat/:reference/clear', async (req, res) => {
+  try {
+    const senderRole = req.body.senderRole || req.query.role || 'customer';
+    const access = {
+      role: senderRole,
+      token: req.body.token || req.query.token || req.headers.authorization?.replace(/^Bearer\s+/i, ''),
+      chatToken: req.body.chatToken || req.query.chatToken || req.query.token
+    };
+    const auth = await authorizeChatAccess(req.params.reference, access);
+    if (!auth.ok) return res.status(auth.status).json({ message: auth.message });
+
+    await ChatMessage.deleteMany({ reference: req.params.reference });
+    io.to(chatRoom(req.params.reference)).emit('chat:cleared', {
+      reference: req.params.reference,
+      byRole: senderRole,
+      at: new Date().toISOString()
+    });
+
+    return res.json({
+      message: 'Chat history cleared',
+      reference: req.params.reference,
+      chatToken: auth.order?.chatToken || null
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Error clearing chat history', error: err.message });
+  }
+});
+
 io.on('connection', (socket) => {
   console.log('🔌 New Socket.IO connection:', socket.id);
   
@@ -865,7 +925,7 @@ io.on('connection', (socket) => {
         }))
       });
 
-      if (typeof ack === 'function') ack({ ok: true });
+      if (typeof ack === 'function') ack({ ok: true, chatToken: auth.order?.chatToken || null });
     } catch (err) {
       console.error(`❌ [${socket.id}] Error in chat:join:`, err.message);
       if (typeof ack === 'function') ack({ ok: false, message: err.message });

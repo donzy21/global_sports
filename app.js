@@ -103,23 +103,36 @@ function formatMoney(value) {
 return Number(value || 0).toFixed(2);
 }
 
+function shortLocationLabel(addressText) {
+const raw = String(addressText || '').trim();
+if (!raw) return 'Location set';
+const parts = raw.split(',').map(part => part.trim()).filter(Boolean);
+if (!parts.length) return raw;
+if (parts.length >= 3) return `${parts[0]}, ${parts[1]}`;
+return parts.slice(0, 2).join(', ');
+}
+
 function renderDeliveryQuote(quote) {
 const distanceEl = document.getElementById('deliveryDistance');
 const feeEl = document.getElementById('deliveryFee');
 const totalEl = document.getElementById('deliveryGrandTotal');
 const noteEl = document.getElementById('deliveryQuoteNote');
 const subtotal = cart.reduce((sum, item) => sum + Number(item.price || 0), 0);
-const total = subtotal + Number(quote?.deliveryFee || 0);
+const onlinePayment = subtotal;
 
 if (distanceEl) {
 distanceEl.textContent = quote?.requiresLocation ? 'Pin your location' : `${Number(quote.distanceKm || 0).toFixed(2)} km`;
 }
 if (feeEl) feeEl.textContent = `GHS ${formatMoney(quote?.deliveryFee)}`;
-if (totalEl) totalEl.textContent = `GHS ${formatMoney(total)}`;
+if (totalEl) totalEl.textContent = `GHS ${formatMoney(onlinePayment)}`;
 if (noteEl) {
 noteEl.textContent = quote?.requiresLocation
-  ? 'Automatic delivery pricing is calculated after you pin your location.'
-  : `Route estimate: about ${quote.durationMin || 0} min from Global Sports.`;
+  ? 'Pin your location to estimate rider delivery fee (paid on delivery).'
+  : quote.pricingZone === 'pickup'
+    ? 'Pickup at the shop: no delivery fee is charged.'
+    : quote.pricingZone === 'custom-quote'
+      ? `Route estimate: about ${quote.durationMin || 0} min. This order is outside normal city bands, so price is by manual rider quote.`
+      : `Route estimate: about ${quote.durationMin || 0} min. Dispatch band: ${quote.pricingZone ? quote.pricingZone.replace(/-/g, ' ') : 'standard'}. Delivery fee is paid to rider on delivery.`;
 }
 }
 
@@ -378,15 +391,40 @@ if (context.role === 'customer') {
 return `${API_URL}/chat/${encodeURIComponent(context.reference)}/messages?${params.toString()}`;
 }
 
-async function loadChatHistory(context) {
+async function loadChatHistory(context, allowRetry = true) {
 const listEl = document.getElementById('chatMessages');
 if (!listEl) return;
 try {
 const res = await fetch(buildChatHistoryUrl(context));
 const data = await parseJsonSafe(res);
 if (!res.ok) throw new Error(data?.message || `Chat history failed (${res.status})`);
+if (context?.role === 'customer' && data?.chatToken && context?.reference) {
+  safeStorageSet(`gs_chat_token_${context.reference}`, data.chatToken);
+  if (activeChat?.reference === context.reference) {
+    activeChat = { ...activeChat, chatToken: data.chatToken };
+    chatSubscriptionContext = { ...chatSubscriptionContext, chatToken: data.chatToken };
+  }
+}
 renderChatHistory(data?.messages || []);
 } catch (err) {
+const isInvalidToken = String(err?.message || '').toLowerCase().includes('invalid chat token');
+if (allowRetry && context?.role === 'customer' && isInvalidToken) {
+  try {
+    const fresh = await fetchTrackData(context.reference);
+    if (fresh?.chatToken) {
+      const refreshedContext = { ...context, chatToken: fresh.chatToken };
+      if (activeChat?.reference === context.reference) {
+        activeChat = refreshedContext;
+        chatSubscriptionContext = refreshedContext;
+      }
+      safeStorageSet(`gs_chat_token_${context.reference}`, fresh.chatToken);
+      await loadChatHistory(refreshedContext, false);
+      return;
+    }
+  } catch {
+    // Fall through to user-visible error below.
+  }
+}
 listEl.innerHTML = `<div class="chat-empty">${escHtml(err.message || 'Could not load chat history')}</div>`;
 }
 }
@@ -416,13 +454,19 @@ return;
 if (titleEl) titleEl.textContent = context.title || 'Live Chat';
 if (contextEl) contextEl.textContent = context.subtitle || `Order ${context.reference}`;
 if (listEl) listEl.innerHTML = '<div class="chat-empty">Loading chat…</div>';
+const toolsEl = document.getElementById('chatTools');
+if (toolsEl) toolsEl.style.display = context.role === 'customer' ? 'flex' : 'none';
 overlayEl.classList.add('open');
+document.body.classList.add('chat-modal-open');
+setTrackMapInteraction(false);
 maybeEnableBrowserNotifications();
 
 console.log('📋 Chat context:', {reference: context.reference, role: context.role, name: context.name});
 
 // Always load REST history first
 await loadChatHistory(context);
+
+const contextForJoin = (activeChat && activeChat.reference === context.reference) ? activeChat : context;
 
 // Try to connect Socket.IO
 if (chatSocket) {
@@ -458,6 +502,26 @@ return;
 let socketConnected = false;
 let joinAttempted = false;
 
+async function retryCustomerChatJoin() {
+if (context.role !== 'customer' || context.__retryingTokenRefresh) return false;
+try {
+  const latest = await fetchTrackData(context.reference);
+  if (!latest?.chatToken) return false;
+  const refreshedContext = {
+    ...context,
+    chatToken: latest.chatToken,
+    __retryingTokenRefresh: true
+  };
+  safeStorageSet(`gs_chat_token_${context.reference}`, latest.chatToken);
+  if (chatSocket) chatSocket.disconnect();
+  await openChatModal(refreshedContext);
+  return true;
+} catch (err) {
+  console.error('❌ Chat token refresh failed:', err.message);
+  return false;
+}
+}
+
 chatSocket.on('connect', () => {
 socketConnected = true;
 console.log('✅ Chat Socket Connected:', chatSocket.id);
@@ -465,18 +529,34 @@ console.log('✅ Chat Socket Connected:', chatSocket.id);
 if (!joinAttempted) {
 joinAttempted = true;
 emitWithAck(chatSocket, 'chat:join', {
-reference: context.reference,
-role: context.role,
-token: context.token || null,
-chatToken: context.chatToken || null,
-name: context.name || ''
+reference: contextForJoin.reference,
+role: contextForJoin.role,
+token: contextForJoin.token || null,
+chatToken: contextForJoin.chatToken || null,
+name: contextForJoin.name || ''
 }).then((ack) => {
 if (!ack?.ok) {
 console.error('❌ Chat join failed:', ack?.message);
+const invalidToken = String(ack?.message || '').toLowerCase().includes('invalid chat token');
+if (invalidToken) {
+  retryCustomerChatJoin().then((retried) => {
+    if (retried) return;
+    if (listEl) listEl.innerHTML = `<div class="chat-empty">${escHtml(ack?.message || 'Could not open chat')}</div>`;
+    showToast('Chat failed: ' + (ack?.message || 'Unknown error'), 'error');
+  });
+  return;
+}
 if (listEl) listEl.innerHTML = `<div class="chat-empty">${escHtml(ack?.message || 'Could not open chat')}</div>`;
 showToast('Chat failed: ' + (ack?.message || 'Unknown error'), 'error');
 } else {
 console.log('✅ Joined chat room for order:', context.reference);
+if (contextForJoin.role === 'customer' && ack.chatToken && contextForJoin.reference) {
+  safeStorageSet(`gs_chat_token_${contextForJoin.reference}`, ack.chatToken);
+  if (activeChat?.reference === contextForJoin.reference) {
+    activeChat = { ...activeChat, chatToken: ack.chatToken };
+    chatSubscriptionContext = { ...chatSubscriptionContext, chatToken: ack.chatToken };
+  }
+}
 chatIsJoined = true;
 chatSubscriptionContext = { ...context };
 }
@@ -510,6 +590,15 @@ incrementChatUnreadCount(payload.reference);
 notifyIncomingChatMessage(payload);
 });
 
+chatSocket.on('chat:cleared', (payload) => {
+if (!activeChat || payload.reference !== activeChat.reference) return;
+chatSeenMessageKeys.clear();
+if (listEl) listEl.innerHTML = '<div class="chat-empty">Chat cleared.</div>';
+if (payload.byRole !== (activeChat.role || 'customer')) {
+  showToast('Chat was cleared by customer', 'success');
+}
+});
+
 chatSocket.on('disconnect', () => {
 socketConnected = false;
 chatIsJoined = false;
@@ -531,10 +620,17 @@ console.error('❌ Chat Socket Error:', err);
 
 function closeChatModal() {
 document.getElementById('chatOverlay').classList.remove('open');
+document.body.classList.remove('chat-modal-open');
+setTrackMapInteraction(true);
 chatModalOpen = false;
 if (activeChat?.reference) clearChatUnreadCount(activeChat.reference);
 activeChat = null;
 chatSeenMessageKeys.clear();
+if (trackMap) {
+setTimeout(() => {
+  try { trackMap.invalidateSize(); } catch { /* no-op */ }
+}, 120);
+}
 }
 
 function handleChatOverlayClick(e) {
@@ -571,6 +667,37 @@ console.error('❌ Socket send failed:', ack?.message);
 showToast(ack?.message || 'Could not send message', 'error');
 failPendingMessage(pendingId);
 return;
+}
+
+async function deleteActiveChatHistory() {
+if (!activeChat?.reference) return;
+if (activeChat.role !== 'customer') {
+  showToast('Only customers can clear this chat', 'error');
+  return;
+}
+const confirmed = window.confirm('Delete this chat history? This cannot be undone.');
+if (!confirmed) return;
+
+try {
+  const res = await fetch(`${API_URL}/chat/${encodeURIComponent(activeChat.reference)}/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      senderRole: 'customer',
+      chatToken: activeChat.chatToken || null,
+      token: activeChat.token || null
+    })
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) throw new Error(data?.message || 'Could not clear chat');
+
+  chatSeenMessageKeys.clear();
+  const listEl = document.getElementById('chatMessages');
+  if (listEl) listEl.innerHTML = '<div class="chat-empty">Chat cleared.</div>';
+  showToast('Chat deleted', 'success');
+} catch (err) {
+  showToast(err.message || 'Could not clear chat', 'error');
+}
 }
 resolvePendingMessage(pendingId, ack.message || {
 reference: activeChat.reference,
@@ -641,6 +768,14 @@ let currentTrackData  = null;
 // Rider GPS sharing state
 let riderGPSWatch    = null;
 let riderActiveOrder = null;
+const LAST_TRACKED_REFERENCE_KEY = 'gs_last_tracked_reference';
+const SAVED_TRACKS_KEY = 'gs_saved_tracks';
+
+const SHOP_PICKUP_LOCATION = {
+lat: 6.7068,
+lng: -1.6398,
+address: 'Global Sports Store, Kumasi-Tanoso (near AAMUSTED)'
+};
 
 // ===================== INIT =====================
 window.addEventListener('DOMContentLoaded', async () => {
@@ -659,11 +794,24 @@ console.log('📦 Socket.IO library available:', typeof io !== 'undefined' ? '�
 
 fetchProducts();
 
+const addressInput = document.getElementById('custAddress');
+if (addressInput) {
+addressInput.addEventListener('blur', () => geocodeAddress(addressInput.value));
+addressInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    geocodeAddress(addressInput.value);
+  }
+});
+}
+
 if (riderToken && riderInfo) {
 showRiderNav(true);
 document.getElementById('riderWelcome').textContent = `Welcome, ${riderInfo.fullName}`;
 connectRiderSSE();
 }
+
+updateRecentChatShortcut();
 });
 
 // ===================== TOAST =====================
@@ -674,8 +822,126 @@ t.className = `toast show ${type}`;
 setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
+function setTrackMapInteraction(enabled) {
+if (!trackMap) return;
+const action = enabled ? 'enable' : 'disable';
+try { if (trackMap.dragging && trackMap.dragging[action]) trackMap.dragging[action](); } catch {}
+try { if (trackMap.touchZoom && trackMap.touchZoom[action]) trackMap.touchZoom[action](); } catch {}
+try { if (trackMap.doubleClickZoom && trackMap.doubleClickZoom[action]) trackMap.doubleClickZoom[action](); } catch {}
+try { if (trackMap.scrollWheelZoom && trackMap.scrollWheelZoom[action]) trackMap.scrollWheelZoom[action](); } catch {}
+try { if (trackMap.boxZoom && trackMap.boxZoom[action]) trackMap.boxZoom[action](); } catch {}
+try { if (trackMap.keyboard && trackMap.keyboard[action]) trackMap.keyboard[action](); } catch {}
+if (trackMap.tap) {
+  try { if (trackMap.tap[action]) trackMap.tap[action](); } catch {}
+}
+}
+
+function getSavedTrackChats() {
+try {
+  const raw = safeStorageGet(SAVED_TRACKS_KEY);
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [];
+} catch {
+  return [];
+}
+}
+
+function saveTrackedChat(data) {
+if (!data?.reference) return;
+const existing = getSavedTrackChats().filter(item => item?.reference && item.reference !== data.reference);
+const nextItem = {
+  reference: data.reference,
+  riderName: data.riderName || null,
+  customerName: data.customerName || null,
+  chatToken: data.chatToken || safeStorageGet(`gs_chat_token_${data.reference}`) || null,
+  status: data.status || null,
+  updatedAt: new Date().toISOString()
+};
+existing.unshift(nextItem);
+safeStorageSet(SAVED_TRACKS_KEY, JSON.stringify(existing.slice(0, 8)));
+safeStorageSet(LAST_TRACKED_REFERENCE_KEY, data.reference);
+}
+
+function updateRecentChatShortcut(data) {
+const card = document.getElementById('savedChatsCard');
+const refEl = document.getElementById('recentChatRef');
+const listEl = document.getElementById('savedChatList');
+if (!card || !refEl || !listEl) return;
+
+const saved = data?.reference ? (() => {
+  saveTrackedChat(data);
+  return getSavedTrackChats();
+})() : getSavedTrackChats();
+
+if (!saved.length) {
+  card.style.display = 'none';
+  return;
+}
+
+refEl.textContent = saved.length === 1 ? '1 saved chat' : `${saved.length} saved chats`;
+listEl.innerHTML = saved.map((item) => {
+  const title = item.riderName ? `Chat with ${escHtml(item.riderName)}` : 'Open Chat';
+  return `
+    <button class="saved-chat-item" data-chat-reference="${escHtml(item.reference)}" onclick="openSavedChat('${escHtml(item.reference)}')">
+      <span class="saved-chat-item-main">
+        <strong>${title}</strong>
+        <small>Order ${escHtml(item.reference)}</small>
+      </span>
+      <span class="saved-chat-item-action">Open</span>
+    </button>
+  `;
+}).join('');
+card.style.display = 'block';
+}
+
+async function resumeLastTrackedChat() {
+const reference = currentTrackData?.reference || safeStorageGet(LAST_TRACKED_REFERENCE_KEY) || '';
+if (!reference) {
+  showToast('Track an order first to open chat quickly', 'error');
+  return;
+}
+
+let data = currentTrackData;
+if (!data || data.reference !== reference) {
+  data = await fetchTrackData(reference);
+}
+
+if (!data) {
+  showToast('Could not load the last tracked order', 'error');
+  return;
+}
+
+currentTrackData = data;
+saveTrackedChat(data);
+updateRecentChatShortcut(data);
+openCustomerChatFromTrack();
+}
+
+async function openSavedChat(reference) {
+const saved = getSavedTrackChats().find(item => item.reference === reference);
+if (!saved) {
+  showToast('Saved chat not found', 'error');
+  return;
+}
+
+let data = currentTrackData && currentTrackData.reference === reference ? currentTrackData : null;
+if (!data) data = await fetchTrackData(reference);
+if (!data) {
+  showToast('Could not load saved chat order', 'error');
+  return;
+}
+
+currentTrackData = { ...data, chatToken: data.chatToken || saved.chatToken || null };
+if (currentTrackData.chatToken) safeStorageSet(`gs_chat_token_${reference}`, currentTrackData.chatToken);
+saveTrackedChat(currentTrackData);
+updateRecentChatShortcut(currentTrackData);
+openCustomerChatFromTrack();
+}
+
 // ===================== SECTION ROUTING =====================
 function showSection(name) {
+document.body.classList.remove('chat-modal-open');
 document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
 document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
@@ -695,6 +961,12 @@ const section = document.getElementById(sectionMap[name]);
 if (section) section.classList.add('active');
 const navBtn = document.getElementById(navMap[name]);
 if (navBtn) navBtn.classList.add('active');
+
+if (name === 'track' && trackMap) {
+setTimeout(() => {
+  try { trackMap.invalidateSize(); } catch { /* no-op */ }
+}, 120);
+}
 
 if (name === 'riderDash') { loadAvailableOrders(); loadMyOrders(); }
 }
@@ -964,6 +1236,34 @@ renderDeliveryQuote({ requiresLocation: true });
 refreshDeliveryQuote();
 }
 
+function useShopPickup() {
+selectedLocation = { ...SHOP_PICKUP_LOCATION };
+document.getElementById('custAddress').value = selectedLocation.address;
+document.getElementById('locationHint').textContent = '📍 Pickup selected at the shop - no delivery fee';
+document.getElementById('locationHint').classList.add('location-set');
+if (checkoutMap) checkoutMap.setView([selectedLocation.lat, selectedLocation.lng], 17);
+if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);
+if (checkoutMap && window.L) {
+  checkoutMarker = L.marker([selectedLocation.lat, selectedLocation.lng], { icon: checkoutMap._greenIcon }).addTo(checkoutMap);
+}
+renderDeliveryQuote({
+  requiresLocation: false,
+  distanceKm: 0,
+  durationMin: 0,
+  deliveryFee: 0,
+  pricingZone: 'pickup',
+  pickupRadiusKm: 0.25
+});
+currentDeliveryQuote = {
+  requiresLocation: false,
+  distanceKm: 0,
+  durationMin: 0,
+  deliveryFee: 0,
+  pricingZone: 'pickup',
+  pickupRadiusKm: 0.25
+};
+}
+
 function handleCheckoutOverlayClick(e) {
 // Only close if clicking the dark backdrop, not the modal itself
 if (e.target === document.getElementById('checkoutOverlay')) {
@@ -990,7 +1290,7 @@ function initCheckoutMap() {
 if (!window.L) return;   // Leaflet not loaded
 if (checkoutMap) return; // Already initialized
 
-const defaultCenter = [5.6037, -0.1870]; // Accra
+const defaultCenter = [6.7068, -1.6398]; // Kumasi-Tanoso near AAMUSTED
 
 checkoutMap = L.map('mapPicker').setView(defaultCenter, 13);
 
@@ -1064,6 +1364,7 @@ const name    = document.getElementById('custName').value.trim();
 const email   = document.getElementById('custEmail').value.trim();
 const phone   = document.getElementById('custPhone').value.trim();
 const address = document.getElementById('custAddress').value.trim();
+const subtotal = cart.reduce((a, b) => a + Number(b.price || 0), 0);
 
 ['custName','custEmail','custPhone'].forEach(id => {
 const field = document.getElementById(id);
@@ -1090,7 +1391,7 @@ name, email, phone, address,
 location: selectedLocation || null
 };
 if (!customer.location) {
-document.getElementById('checkoutError').textContent = 'Please pin your delivery location so we can calculate the fee.';
+document.getElementById('checkoutError').textContent = 'Please type your delivery address or pin your location so we can calculate the fee.';
 return;
 }
 if (!currentDeliveryQuote) {
@@ -1101,15 +1402,13 @@ document.getElementById('checkoutError').textContent = 'Could not calculate deli
 return;
 }
 const quoteSnapshot = { ...currentDeliveryQuote };
-const subtotal    = cart.reduce((a, b) => a + Number(b.price || 0), 0);
 const deliveryFee = Number(quoteSnapshot.deliveryFee || 0);
-const total       = subtotal + deliveryFee;
 const cartSnapshot = [...cart];
 
 const handler = PaystackPop.setup({
 key:      PAYSTACK_PUBLIC_KEY,
 email:    customer.email,
-amount:   Math.round(total * 100),
+amount:   Math.round(subtotal * 100),
 currency: 'GHS',
 ref:      'GS_' + Date.now(),
 callback: function(res) {
@@ -1175,6 +1474,7 @@ const data = await fetchTrackData(ref);
 if (!data) { errEl.textContent = 'Order not found. Check your reference and try again.'; return; }
 
 document.getElementById('trackResult').style.display = 'block';
+saveTrackedChat(data);
 renderTrackResult(data);
 
 // Start polling every 5 seconds for live updates
@@ -1211,7 +1511,10 @@ statusEl.className    = `track-status-badge status-${data.status || 'pending'}`;
 // Info grid
 const items = (data.items || []).map(i => `${i.name} × 1`).join(', ');
 const date  = new Date(data.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-document.getElementById('trackInfoGrid').innerHTML = `<div class="track-info-item"><span>Customer</span><strong>${escHtml(data.customerName || 'You')}</strong></div> <div class="track-info-item"><span>Subtotal</span><strong>GHS ${Number(data.subtotal || 0).toFixed(2)}</strong></div> <div class="track-info-item"><span>Delivery Fee</span><strong>GHS ${Number(data.deliveryFee || 0).toFixed(2)}</strong></div> <div class="track-info-item"><span>Total</span><strong>GHS ${Number(data.amount).toFixed(2)}</strong></div> <div class="track-info-item"><span>Distance</span><strong>${Number(data.deliveryDistanceKm || 0).toFixed(2)} km</strong></div> <div class="track-info-item"><span>Rider</span><strong>${escHtml(data.riderName || 'Not yet assigned')}</strong></div> <div class="track-info-item"><span>Ordered</span><strong>${date}</strong></div> <div class="track-info-item"><span>Chat</span><strong>${data.riderName ? 'Live with rider' : 'Support thread open'}</strong></div>`;
+const subtotalAmount = Number(data.subtotal || 0);
+const deliveryAmount = Number(data.deliveryFee || 0);
+const grandTotal = subtotalAmount + deliveryAmount;
+document.getElementById('trackInfoGrid').innerHTML = `<div class="track-info-item"><span>Customer</span><strong>${escHtml(data.customerName || 'You')}</strong></div> <div class="track-info-item"><span>Subtotal</span><strong>GHS ${subtotalAmount.toFixed(2)}</strong></div> <div class="track-info-item"><span>Paid Online</span><strong>GHS ${Number(data.amount || 0).toFixed(2)}</strong></div> <div class="track-info-item"><span>Pay Rider on Delivery</span><strong>GHS ${deliveryAmount.toFixed(2)}</strong></div> <div class="track-info-item"><span>Grand Total</span><strong>GHS ${grandTotal.toFixed(2)}</strong></div> <div class="track-info-item"><span>Distance</span><strong>${Number(data.deliveryDistanceKm || 0).toFixed(2)} km</strong></div> <div class="track-info-item"><span>Rider</span><strong>${escHtml(data.riderName || 'Not yet assigned')}</strong></div> <div class="track-info-item"><span>Ordered</span><strong>${date}</strong></div> <div class="track-info-item"><span>Chat</span><strong>${data.riderName ? 'Live with rider' : 'Support thread open'}</strong></div>`;
 
 const chatActions = document.getElementById('trackChatActions');
 if (chatActions) chatActions.style.display = 'block';
@@ -1221,15 +1524,41 @@ const baseLabel = data.riderName ? 'Chat with Rider' : 'Open Support Chat';
 chatBtn.textContent = formatChatButtonLabel(baseLabel, getChatUnreadCount(data.reference));
 }
 
+updateRecentChatShortcut(data);
+
 // Map
 initTrackMap(data);
+if (trackMap) {
+setTimeout(() => {
+  try { trackMap.invalidateSize(); } catch { /* no-op */ }
+}, 120);
+}
 }
 
 function initTrackMap(data) {
 const custLoc   = data.customerLocation;
 const riderLoc  = data.riderLocation;
 
-if (!custLoc?.lat) return; // No customer location pinned
+if (!custLoc?.lat || !custLoc?.lng) {
+const mapEl = document.getElementById('trackMap');
+if (trackMap) {
+  try { trackMap.remove(); } catch { /* no-op */ }
+  trackMap = null;
+  trackCustMarker = null;
+  trackRiderMarker = null;
+  trackRouteLayer = null;
+}
+if (mapEl) {
+  mapEl.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;padding:0 16px;text-align:center;">Delivery map is unavailable because this order has no pinned customer location.</div>';
+}
+document.getElementById('trackETA').innerHTML = '<span class="eta-label">No map location available</span>';
+return;
+}
+
+const mapEl = document.getElementById('trackMap');
+if (mapEl && mapEl.childElementCount && !trackMap) {
+mapEl.innerHTML = '';
+}
 
 // Init map if not yet done
 if (!trackMap) {
@@ -1249,6 +1578,8 @@ if (!trackCustMarker) {
 trackCustMarker = L.marker([custLoc.lat, custLoc.lng], { icon: custIcon })
 .addTo(trackMap)
 .bindPopup('📍 Your delivery location');
+} else {
+trackCustMarker.setLatLng([custLoc.lat, custLoc.lng]);
 }
 
 // Rider marker (blue dot — moves in real time)
@@ -1290,7 +1621,10 @@ data.status === 'paid'
 : data.status === 'delivered'
 ? '<span class="eta-label" style="color:var(--accent)">✅ Delivered!</span>'
 : '<span class="eta-label">Rider not yet assigned</span>';
+trackMap.setView([custLoc.lat, custLoc.lng], 14);
 }
+
+try { trackMap.invalidateSize(); } catch { /* no-op */ }
 }
 
 async function drawRoute(riderLat, riderLng, custLat, custLng) {
@@ -1713,13 +2047,36 @@ return;
 }
 clearChatUnreadCount(currentTrackData.reference);
 const chatToken = currentTrackData.chatToken || localStorage.getItem(`gs_chat_token_${currentTrackData.reference}`) || '';
-openChatModal({
-reference: currentTrackData.reference,
-role: 'customer',
-name: currentTrackData.customerName || 'Customer',
-chatToken,
-title: currentTrackData.riderName ? 'Chat with Rider' : 'Support Chat',
-subtitle: `Order ${currentTrackData.reference}`
+if (chatToken) {
+  safeStorageSet(`gs_chat_token_${currentTrackData.reference}`, chatToken);
+  openChatModal({
+    reference: currentTrackData.reference,
+    role: 'customer',
+    name: currentTrackData.customerName || 'Customer',
+    chatToken,
+    title: currentTrackData.riderName ? 'Chat with Rider' : 'Support Chat',
+    subtitle: `Order ${currentTrackData.reference}`
+  });
+  return;
+}
+
+fetchTrackData(currentTrackData.reference).then((fresh) => {
+  if (!fresh?.chatToken) {
+    showToast('Could not prepare chat access yet. Track the order again.', 'error');
+    return;
+  }
+  currentTrackData = { ...currentTrackData, ...fresh, chatToken: fresh.chatToken };
+  safeStorageSet(`gs_chat_token_${currentTrackData.reference}`, fresh.chatToken);
+  saveTrackedChat(currentTrackData);
+  updateRecentChatShortcut(currentTrackData);
+  openChatModal({
+    reference: currentTrackData.reference,
+    role: 'customer',
+    name: currentTrackData.customerName || 'Customer',
+    chatToken: fresh.chatToken,
+    title: currentTrackData.riderName ? 'Chat with Rider' : 'Support Chat',
+    subtitle: `Order ${currentTrackData.reference}`
+  });
 });
 }
 
@@ -1737,4 +2094,56 @@ name: riderInfo?.fullName || 'Rider',
 title: `Customer Chat`,
 subtitle: customerName ? `Conversation with ${customerName}` : `Conversation for order ${reference}`
 });
+}
+
+async function geocodeAddress(addressText) {
+const query = String(addressText || '').trim();
+if (!query) return null;
+
+const normalized = query.toLowerCase();
+if (normalized.includes('tanoso') || normalized.includes('aamusted') || normalized.includes('global sports store') || normalized.includes('pickup at the shop')) {
+selectedLocation = { ...SHOP_PICKUP_LOCATION };
+document.getElementById('locationHint').textContent = `📍 ${shortLocationLabel(SHOP_PICKUP_LOCATION.address)} - no delivery fee`;
+document.getElementById('locationHint').classList.add('location-set');
+if (checkoutMap) checkoutMap.setView([selectedLocation.lat, selectedLocation.lng], 17);
+if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);
+if (checkoutMap && window.L) {
+  checkoutMarker = L.marker([selectedLocation.lat, selectedLocation.lng], { icon: checkoutMap._greenIcon }).addTo(checkoutMap);
+}
+currentDeliveryQuote = {
+  requiresLocation: false,
+  distanceKm: 0,
+  durationMin: 0,
+  deliveryFee: 0,
+  pricingZone: 'pickup',
+  pickupRadiusKm: 0.25
+};
+renderDeliveryQuote(currentDeliveryQuote);
+return currentDeliveryQuote;
+}
+
+try {
+const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`;
+const res = await fetch(url);
+const data = await res.json();
+const place = Array.isArray(data) ? data[0] : null;
+if (!place) return null;
+
+const lat = Number(place.lat);
+const lng = Number(place.lon);
+const address = place.display_name || query;
+selectedLocation = { lat, lng, address };
+document.getElementById('locationHint').textContent = `📍 ${shortLocationLabel(address)}`;
+document.getElementById('locationHint').classList.add('location-set');
+if (checkoutMap) checkoutMap.setView([lat, lng], 16);
+if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);
+if (checkoutMap && window.L) {
+  checkoutMarker = L.marker([lat, lng], { icon: checkoutMap._greenIcon }).addTo(checkoutMap);
+}
+await refreshDeliveryQuote();
+return selectedLocation;
+} catch (err) {
+console.error('Address geocode failed:', err);
+return null;
+}
 }
