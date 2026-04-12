@@ -19,9 +19,17 @@ app.use((req, res, next) => {
   // Allow resources from this backend to be embedded/loaded by other origins.
   // If you later serve everything from one site only, change this to `same-site`.
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   next();
 });
 app.use(express.json());
+app.use(express.static(__dirname, { extensions: ['html'] }));
 
 // ================= KEEP-ALIVE ROUTE =================
 app.get('/ping', (req, res) => {
@@ -754,7 +762,21 @@ app.get('/api/riders/orders/available', authenticateRider, async (req, res) => {
 app.get('/api/riders/orders/mine', authenticateRider, async (req, res) => {
   try {
     const orders = await Order.find({ riderId: req.rider.id }).sort({ date: -1 });
-    res.json(orders);
+    const ordersWithChatMeta = await Promise.all(orders.map(async (order) => {
+      const [chatMessageCount, latestChatMessage] = await Promise.all([
+        ChatMessage.countDocuments({ reference: order.reference }),
+        ChatMessage.findOne({ reference: order.reference }).sort({ createdAt: -1 })
+      ]);
+
+      return {
+        ...order.toObject(),
+        chatMessageCount,
+        lastChatMessageRole: latestChatMessage?.senderRole || null,
+        lastChatMessageAt: latestChatMessage?.createdAt || null
+      };
+    }));
+
+    res.json(ordersWithChatMeta);
   } catch (err) {
     res.status(500).json({ message: 'Error fetching orders' });
   }

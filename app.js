@@ -326,6 +326,8 @@ renotify: true
 } catch {
 // Ignore browser notification failures.
 }
+}
+}
 
 function totalUnreadChatCount() {
 let total = 0;
@@ -354,7 +356,57 @@ updateUnreadBadgeElement('trackChatAlertBadge', total);
 updateUnreadBadgeElement('riderChatAlertBadge', total);
 updateUnreadBadgeElement('myDeliveriesChatCount', total);
 }
+
+function getStoredChatSeenTotals() {
+try {
+  const raw = safeStorageGet('gs_chat_seen_totals');
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? parsed : {};
+} catch {
+  return {};
 }
+}
+
+function persistChatSeenTotals() {
+try {
+  const payload = {};
+  chatSeenTotals.forEach((count, reference) => {
+    payload[reference] = Math.max(0, Number(count) || 0);
+  });
+  safeStorageSet('gs_chat_seen_totals', JSON.stringify(payload));
+} catch {
+  // Ignore storage failures.
+}
+}
+
+function getChatSeenCount(reference) {
+if (!reference) return 0;
+return chatSeenTotals.get(reference) || 0;
+}
+
+function setChatSeenCount(reference, count) {
+if (!reference) return;
+const safeCount = Math.max(0, Number(count) || 0);
+chatSeenTotals.set(reference, safeCount);
+persistChatSeenTotals();
+}
+
+function markChatAsRead(reference, totalCount) {
+if (!reference) return;
+const safeTotal = Math.max(0, Number(totalCount) || 0);
+setChatSeenCount(reference, safeTotal);
+setChatUnreadCount(reference, 0);
+}
+
+function syncChatUnreadFromTotal(reference, totalCount, lastSenderRole, currentRole) {
+if (!reference) return 0;
+const safeTotal = Math.max(0, Number(totalCount) || 0);
+chatMessageTotals.set(reference, safeTotal);
+const seen = getChatSeenCount(reference);
+const unread = Math.max(0, safeTotal - seen);
+setChatUnreadCount(reference, unread);
+return unread;
 }
 
 function getChatUnreadCount(reference) {
@@ -412,18 +464,24 @@ refreshGlobalChatBadges();
 function handleTrackChatMeta(reference, messageCount, lastSenderRole, source = 'poll') {
 if (!reference) return;
 const nextCount = Math.max(0, Number(messageCount) || 0);
-const prevCount = chatMessageTotals.get(reference) || 0;
 chatMessageTotals.set(reference, nextCount);
-
-if (nextCount <= prevCount) return;
-const delta = nextCount - prevCount;
-const isIncoming = String(lastSenderRole || '') !== 'customer';
 const isModalViewingThisChat = chatModalOpen && activeChat?.reference === reference;
-if (!isIncoming || isModalViewingThisChat) return;
+if (isModalViewingThisChat) {
+  markChatAsRead(reference, nextCount);
+  return;
+}
 
-incrementChatUnreadCount(reference);
-if (delta > 1) {
-  setChatUnreadCount(reference, getChatUnreadCount(reference) + (delta - 1));
+if (String(lastSenderRole || '') === 'customer') {
+  refreshChatUnreadIndicators();
+  return;
+}
+
+const seen = getChatSeenCount(reference);
+const unread = Math.max(0, nextCount - seen);
+setChatUnreadCount(reference, unread);
+
+if (unread === 0) {
+  return;
 }
 
 showToast(source === 'poll' ? 'New message from rider' : 'New message', 'success');
@@ -468,7 +526,11 @@ if (context?.role === 'customer' && data?.chatToken && context?.reference) {
 }
 renderChatHistory(data?.messages || []);
 if (context?.reference) {
-  chatMessageTotals.set(context.reference, Array.isArray(data?.messages) ? data.messages.length : 0);
+  const total = Array.isArray(data?.messages) ? data.messages.length : 0;
+  chatMessageTotals.set(context.reference, total);
+  if (chatModalOpen && activeChat?.reference === context.reference) {
+    markChatAsRead(context.reference, total);
+  }
 }
 } catch (err) {
 const isInvalidToken = String(err?.message || '').toLowerCase().includes('invalid chat token');
@@ -773,6 +835,7 @@ senderName: message.senderName,
 text: message.text,
 createdAt: new Date().toISOString()
 });
+markChatAsRead(activeChat.reference, chatMessageTotals.get(activeChat.reference) || 0);
 } else {
 // Fallback to HTTP
 console.log('📤 Socket not connected, sending via HTTP...');
@@ -792,6 +855,7 @@ senderName: message.senderName,
 text: message.text,
 createdAt: new Date().toISOString()
 });
+markChatAsRead(activeChat.reference, chatMessageTotals.get(activeChat.reference) || 0);
 } catch (err) {
 console.error('❌ HTTP send failed:', err.message);
 showToast(err.message, 'error');
@@ -824,6 +888,7 @@ let chatSubscriptionContext = null;
 let chatIsJoined = false;
 const chatUnreadCounts = new Map();
 const chatMessageTotals = new Map();
+const chatSeenTotals = new Map(Object.entries(getStoredChatSeenTotals()).map(([reference, count]) => [reference, Math.max(0, Number(count) || 0)]));
 const chatSeenMessageKeys = new Set();
 // Tracking state
 let trackMap         = null;
@@ -1905,8 +1970,14 @@ riderSSE.addEventListener('chat_message', (e) => {
     if (!payload?.reference) return;
 
     const viewingSameChat = chatModalOpen && activeChat?.reference === payload.reference && (activeChat?.role || '') === 'rider';
-    if (!viewingSameChat) {
+    if (!viewingSameChat && (payload.senderRole || '') !== 'rider') {
       incrementChatUnreadCount(payload.reference);
+    }
+
+    if (viewingSameChat) {
+      const total = (chatMessageTotals.get(payload.reference) || 0) + 1;
+      chatMessageTotals.set(payload.reference, total);
+      markChatAsRead(payload.reference, total);
     }
 
     if ((payload.senderRole || '') === 'customer' && !viewingSameChat) {
@@ -2003,6 +2074,10 @@ if (!orders.length) {
 el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:60px 0">No deliveries yet.</p>';
 return;
 }
+orders.forEach((order) => {
+if (!order?.reference) return;
+syncChatUnreadFromTotal(order.reference, order.chatMessageCount || 0, order.lastChatMessageRole || null, 'rider');
+});
 el.innerHTML = orders.map(o => renderRiderOrderCard(o, false)).join('');
 refreshRiderChatUnreadIndicators();
 } catch (err) {
@@ -2017,6 +2092,9 @@ const itemsHtml = (o.items || []).map(i => `<li>${escHtml(i.name)} — GHS ${Num
 const locHtml   = o.customer?.location?.address ? `<div style="font-size:12px;color:var(--accent);margin-top:6px;font-weight:500">📍 ${escHtml(o.customer.location.address)}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">📍 No location provided</div>';
 const coordsDisplay = o.customer?.location?.lat ? `<div style="font-size:10px;color:var(--text-muted)">${o.customer.location.lat.toFixed(4)}, ${o.customer.location.lng.toFixed(4)}</div>` : '';
 const statusClass = `status-${o.status || 'pending'}`;
+if (o?.reference) {
+syncChatUnreadFromTotal(o.reference, o.chatMessageCount || 0, o.lastChatMessageRole || null, 'rider');
+}
 const unreadCount = getChatUnreadCount(o.reference || '');
 const chatBtn = !showActions
 ? `<button class="chat-btn" data-chat-reference="${escHtml(o.reference || '')}" data-chat-base-label="💬 Chat" onclick="openRiderChat('${o.reference || ''}', '${escHtml(o.customer?.name || 'Customer')}')">${formatChatButtonLabel('💬 Chat', unreadCount)}</button>`
@@ -2150,6 +2228,7 @@ showToast('Track an order first to open chat', 'error');
 return;
 }
 clearChatUnreadCount(currentTrackData.reference);
+markChatAsRead(currentTrackData.reference, chatMessageTotals.get(currentTrackData.reference) || currentTrackData.chatMessageCount || 0);
 const chatToken = currentTrackData.chatToken || localStorage.getItem(`gs_chat_token_${currentTrackData.reference}`) || '';
 if (chatToken) {
   safeStorageSet(`gs_chat_token_${currentTrackData.reference}`, chatToken);
@@ -2190,6 +2269,7 @@ showToast('Please login as rider first', 'error');
 return;
 }
 clearChatUnreadCount(reference);
+markChatAsRead(reference, chatMessageTotals.get(reference) || getChatSeenCount(reference) || 0);
 openChatModal({
 reference,
 role: 'rider',
