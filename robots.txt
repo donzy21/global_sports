@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://global-sports-backend.onrender.com/sitemap.xml
+Sitemap: https://globalsports-mall.me/sitemap.xml

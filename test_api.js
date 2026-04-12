@@ -1,6 +1,6 @@
 const https = require('https');
 
-const url = 'https://global-sports-backend.onrender.com/api/products';
+const url = 'https://globalsports-mall.me/api/products';
 
 https.get(url, (res) => {
   let data = '';

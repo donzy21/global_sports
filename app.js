@@ -19,7 +19,7 @@ const override = safeStorageGet('gs_api_url');
 if (override) return override;
 const host = window.location.hostname;
 if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
-return 'https://global-sports-backend.onrender.com/api';
+return 'https://globalsports-mall.me/api';
 })();
 const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
@@ -39,7 +39,7 @@ const list = [
 sameOriginApi,
 safeStoredApi,
 API_URL,
-'https://global-sports-backend.onrender.com/api',
+'https://globalsports-mall.me/api',
 ...localCandidates
 ].filter(Boolean);
 return [...new Set(list)];
