@@ -7,14 +7,45 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const allowedOrigins = new Set(
+  String(process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
+
+if (!allowedOrigins.size) {
+  allowedOrigins.add('http://localhost:5000');
+  allowedOrigins.add('http://localhost:5001');
+  allowedOrigins.add('http://127.0.0.1:5000');
+  allowedOrigins.add('http://127.0.0.1:5001');
+}
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  return allowedOrigins.has(origin);
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin not allowed by CORS'));
+  },
+  credentials: true
+};
+
+const io = new Server(server, { cors: corsOptions });
 
 // ================= MIDDLEWARE =================
-app.use(cors({ origin: '*' }));
+app.use(cors(corsOptions));
 app.use((req, res, next) => {
   // Allow resources from this backend to be embedded/loaded by other origins.
   // If you later serve everything from one site only, change this to `same-site`.
@@ -30,6 +61,21 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 app.use(express.static(__dirname, { extensions: ['html'] }));
+
+// Serve standalone admin dashboard files from sibling folder when available.
+const adminDashboardDir = path.resolve(__dirname, '..', 'admin-dashboard');
+if (fs.existsSync(adminDashboardDir)) {
+  app.use('/admin-dashboard', express.static(adminDashboardDir, { extensions: ['html'] }));
+  app.get('/admin-dashboard.html', (req, res) => {
+    res.sendFile(path.join(adminDashboardDir, 'index.html'));
+  });
+  app.get('/admin-rider-command.html', (req, res) => {
+    res.sendFile(path.join(adminDashboardDir, 'admin-dashboard.html'));
+  });
+  app.get('/admin-dashboard.js', (req, res) => {
+    res.sendFile(path.join(adminDashboardDir, 'admin-dashboard.js'));
+  });
+}
 
 // ================= KEEP-ALIVE ROUTE =================
 app.get('/ping', (req, res) => {
@@ -57,7 +103,8 @@ app.get('/api/', (req, res) => {
 });
 
 // ================= CONFIGURATION =================
-const PORT = process.env.PORT || 5000;
+const DEFAULT_PORT = Number(process.env.PORT || 5000);
+const FALLBACK_PORTS = [DEFAULT_PORT, 5000, 5001, 5002, 5003].filter((port, index, list) => Number.isFinite(port) && list.indexOf(port) === index);
 const MONGO_URI = process.env.MONGO_URI;
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET || process.env.SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
@@ -178,6 +225,13 @@ const Rider = mongoose.model('Rider', new mongoose.Schema({
   createdAt:       { type: Date, default: Date.now }
 }));
 
+function sanitizeRider(rider) {
+  if (!rider) return null;
+  const plain = typeof rider.toObject === 'function' ? rider.toObject() : { ...rider };
+  delete plain.password;
+  return plain;
+}
+
 async function initializeDbMaintenance() {
   await ensureChatIndexes();
   await runChatRetentionSweep();
@@ -257,6 +311,18 @@ async function notifyAssignedRiderChatMessage(reference, payload = {}) {
   } catch (err) {
     console.warn('Failed to push rider chat notification:', err.message);
   }
+}
+
+function notifyDirectRiderChatMessage(reference, payload = {}) {
+  const riderId = getDirectRiderId(reference);
+  if (!riderId) return;
+  notifyRiderById(riderId, 'chat_message', {
+    reference,
+    senderRole: payload.senderRole || null,
+    senderName: payload.senderName || null,
+    text: payload.text || '',
+    createdAt: payload.createdAt || new Date().toISOString()
+  });
 }
 
 function normalizeLocation(location) {
@@ -394,11 +460,94 @@ function chatRoom(reference) {
   return `order:${reference}`;
 }
 
+function normalizeChatReference(reference) {
+  let value = String(reference || '').trim();
+  if (!value) return '';
+  try {
+    value = decodeURIComponent(value);
+  } catch {
+    // Keep raw value when decoding fails.
+  }
+  return value.trim();
+}
+
+function isDirectRiderChatReference(reference) {
+  return /^rider:/i.test(normalizeChatReference(reference));
+}
+
+function getDirectRiderId(reference) {
+  if (!isDirectRiderChatReference(reference)) return '';
+  const normalized = normalizeChatReference(reference);
+  const delimiterIndex = normalized.indexOf(':');
+  if (delimiterIndex < 0) return '';
+  return normalized.slice(delimiterIndex + 1).trim();
+}
+
 async function findLatestOrderByReference(reference) {
   return Order.findOne({ reference }).sort({ date: -1, _id: -1 });
 }
 
 async function authorizeChatAccess(reference, access = {}) {
+  reference = normalizeChatReference(reference);
+  const role = String(access.role || '').trim().toLowerCase();
+
+  if (!reference) {
+    return { ok: false, status: 400, message: 'Missing chat reference' };
+  }
+
+  if (!isDirectRiderChatReference(reference) && role === 'rider' && access.token) {
+    try {
+      const rider = jwt.verify(access.token, RIDER_JWT_SECRET);
+      const riderId = String(rider.id || '').trim();
+      if (reference === riderId) {
+        reference = `rider:${riderId}`;
+      }
+    } catch {
+      // Normal auth branch below returns a consistent error.
+    }
+  }
+
+  if (!isDirectRiderChatReference(reference) && role === 'admin' && mongoose.Types.ObjectId.isValid(reference)) {
+    try {
+      const riderExists = await Rider.exists({ _id: reference });
+      if (riderExists) {
+        reference = `rider:${reference}`;
+      }
+    } catch {
+      // Ignore existence lookup errors and continue normal order flow.
+    }
+  }
+
+  if (isDirectRiderChatReference(reference)) {
+    const directRiderId = getDirectRiderId(reference);
+    if (!directRiderId) {
+      return { ok: false, status: 400, message: 'Invalid rider chat reference' };
+    }
+
+    if (role === 'admin') {
+      try {
+        const admin = jwt.verify(access.token, JWT_SECRET);
+        return { ok: true, threadType: 'rider', riderId: directRiderId, admin, reference };
+      } catch {
+        return { ok: false, status: 401, message: 'Invalid admin token' };
+      }
+    }
+
+    if (role === 'rider') {
+      try {
+        const rider = jwt.verify(access.token, RIDER_JWT_SECRET);
+        if (String(rider.id) !== directRiderId) {
+          return { ok: false, status: 403, message: 'This chat does not belong to you' };
+        }
+        return { ok: true, threadType: 'rider', riderId: directRiderId, rider, reference };
+      } catch {
+        return { ok: false, status: 401, message: 'Invalid rider token' };
+      }
+    }
+
+    return { ok: false, status: 400, message: 'Unsupported chat role' };
+  }
+
   const order = await findLatestOrderByReference(reference);
   if (!order) return { ok: false, status: 404, message: 'Order not found' };
 
@@ -407,27 +556,27 @@ async function authorizeChatAccess(reference, access = {}) {
     await order.save();
   }
 
-  if (access.role === 'customer') {
+  if (role === 'customer') {
     // Token mismatches are treated as stale client state; return canonical token so client can self-heal.
-    return { ok: true, order, tokenRefreshed: !access.chatToken || access.chatToken !== order.chatToken };
+    return { ok: true, order, tokenRefreshed: !access.chatToken || access.chatToken !== order.chatToken, reference };
   }
 
-  if (access.role === 'rider') {
+  if (role === 'rider') {
     try {
       const rider = jwt.verify(access.token, RIDER_JWT_SECRET);
       if (order.riderId && String(order.riderId) !== String(rider.id)) {
         return { ok: false, status: 403, message: 'This order is not assigned to you' };
       }
-      return { ok: true, order, rider };
+      return { ok: true, order, rider, reference };
     } catch {
       return { ok: false, status: 401, message: 'Invalid rider token' };
     }
   }
 
-  if (access.role === 'admin') {
+  if (role === 'admin') {
     try {
       const admin = jwt.verify(access.token, JWT_SECRET);
-      return { ok: true, order, admin };
+      return { ok: true, order, admin, reference };
     } catch {
       return { ok: false, status: 401, message: 'Invalid admin token' };
     }
@@ -439,9 +588,8 @@ async function authorizeChatAccess(reference, access = {}) {
 // ================= AUTH MIDDLEWARE (FIXED) =================
 const authenticate = (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
-  // FIX: Properly handle Bearer prefix and fallback to query token
+  // FIX: Properly handle Bearer prefix.
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-  if (!token && req.query && req.query.token) token = req.query.token;
   
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
@@ -454,9 +602,8 @@ const authenticate = (req, res, next) => {
 
 const authenticateRider = (req, res, next) => {
   const authHeader = req.headers['authorization'] || '';
-  // FIX: Properly handle Bearer prefix and fallback to query token
+  // FIX: Properly handle Bearer prefix.
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-  if (!token && req.query && req.query.token) token = req.query.token;
 
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
@@ -524,7 +671,21 @@ app.get('/api/products', async (req, res) => {
   res.json(products);
 });
 
+app.get('/api/admin/products', authenticate, async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
+});
+
 app.post('/api/products', authenticate, async (req, res) => {
+  try {
+    const product = await Product.create(req.body);
+    res.json({ message: 'Product added', product });
+  } catch (err) {
+    res.status(400).json({ message: 'Error adding product', error: err.message });
+  }
+});
+
+app.post('/api/admin/products', authenticate, async (req, res) => {
   try {
     const product = await Product.create(req.body);
     res.json({ message: 'Product added', product });
@@ -543,7 +704,27 @@ app.put('/api/products/:id', authenticate, async (req, res) => {
   }
 });
 
+app.put('/api/admin/products/:id', authenticate, async (req, res) => {
+  try {
+    const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json({ message: 'Product updated', product });
+  } catch (err) {
+    res.status(400).json({ message: 'Error updating product', error: err.message });
+  }
+});
+
 app.delete('/api/products/:id', authenticate, async (req, res) => {
+  try {
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json({ message: 'Product deleted' });
+  } catch (err) {
+    res.status(400).json({ message: 'Error deleting product', error: err.message });
+  }
+});
+
+app.delete('/api/admin/products/:id', authenticate, async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
@@ -721,7 +902,12 @@ app.post('/api/riders/register', async (req, res) => {
   try {
     const hashed = await bcrypt.hash(password, 10);
     const rider  = await Rider.create({ fullName, phone, password: hashed, ghanaCardId, vehicleLicenseId });
-    res.json({ message: 'Registration submitted! Await admin approval.', rider });
+    const publicRider = sanitizeRider(rider);
+
+    io.emit('rider:registered', { rider: publicRider });
+    io.emit('rider:application', { rider: publicRider });
+
+    res.json({ message: 'Registration submitted! Await admin approval.', rider: publicRider });
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ message: 'Phone number already registered' });
     res.status(400).json({ message: 'Error registering rider', error: err.message });
@@ -856,9 +1042,10 @@ app.get('/api/chat/:reference/messages', async (req, res) => {
     const auth = await authorizeChatAccess(req.params.reference, access);
     if (!auth.ok) return res.status(auth.status).json({ message: auth.message });
 
-    const messages = await ChatMessage.find({ reference: req.params.reference }).sort({ createdAt: 1 }).limit(200);
+    const resolvedReference = auth.reference || normalizeChatReference(req.params.reference);
+    const messages = await ChatMessage.find({ reference: resolvedReference }).sort({ createdAt: 1 }).limit(200);
     res.json({
-      reference: req.params.reference,
+      reference: resolvedReference,
       chatToken: auth.order?.chatToken || null,
       messages: messages.map(msg => ({
         id: msg._id,
@@ -883,8 +1070,9 @@ app.post('/api/chat/:reference/messages', async (req, res) => {
     const cleanText = String(text || '').trim();
     if (!cleanText) return res.status(400).json({ message: 'Message cannot be empty' });
 
+    const resolvedReference = auth.reference || normalizeChatReference(req.params.reference);
     const message = await ChatMessage.create({
-      reference: req.params.reference,
+      reference: resolvedReference,
       senderRole,
       senderId: auth.rider?.id || auth.admin?.id || null,
       senderName: String(senderName || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
@@ -900,9 +1088,12 @@ app.post('/api/chat/:reference/messages', async (req, res) => {
       createdAt: message.createdAt
     };
 
-    io.to(chatRoom(req.params.reference)).emit('chat:message', payload);
+    io.to(chatRoom(resolvedReference)).emit('chat:message', payload);
     if (payload.senderRole === 'customer') {
-      notifyAssignedRiderChatMessage(req.params.reference, payload);
+      notifyAssignedRiderChatMessage(resolvedReference, payload);
+    }
+    if (isDirectRiderChatReference(resolvedReference)) {
+      notifyDirectRiderChatMessage(resolvedReference, payload);
     }
     res.json({ message: 'Message sent', chatMessage: payload });
   } catch (err) {
@@ -921,16 +1112,17 @@ app.post('/api/chat/:reference/clear', async (req, res) => {
     const auth = await authorizeChatAccess(req.params.reference, access);
     if (!auth.ok) return res.status(auth.status).json({ message: auth.message });
 
-    await ChatMessage.deleteMany({ reference: req.params.reference });
-    io.to(chatRoom(req.params.reference)).emit('chat:cleared', {
-      reference: req.params.reference,
+    const resolvedReference = auth.reference || normalizeChatReference(req.params.reference);
+    await ChatMessage.deleteMany({ reference: resolvedReference });
+    io.to(chatRoom(resolvedReference)).emit('chat:cleared', {
+      reference: resolvedReference,
       byRole: senderRole,
       at: new Date().toISOString()
     });
 
     return res.json({
       message: 'Chat history cleared',
-      reference: req.params.reference,
+      reference: resolvedReference,
       chatToken: auth.order?.chatToken || null
     });
   } catch (err) {
@@ -943,7 +1135,7 @@ io.on('connection', (socket) => {
   
   socket.on('chat:join', async (payload = {}, ack) => {
     try {
-      const reference = String(payload.reference || '').trim();
+      const reference = normalizeChatReference(payload.reference);
       const role = String(payload.role || '').trim();
       console.log(`📨 [${socket.id}] chat:join - reference: ${reference}, role: ${role}`);
       
@@ -958,21 +1150,23 @@ io.on('connection', (socket) => {
         return;
       }
 
+      const resolvedReference = auth.reference || reference;
+
       socket.data.chat = {
-        reference,
+        reference: resolvedReference,
         role,
         name: String(payload.name || auth.order?.customer?.name || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
         token: payload.token || null,
         chatToken: payload.chatToken || null
       };
-      socket.join(chatRoom(reference));
-      console.log(`✅ [${socket.id}] Joined room: ${chatRoom(reference)}`);
+      socket.join(chatRoom(resolvedReference));
+      console.log(`✅ [${socket.id}] Joined room: ${chatRoom(resolvedReference)}`);
 
-      const messages = await ChatMessage.find({ reference }).sort({ createdAt: 1 }).limit(200);
+      const messages = await ChatMessage.find({ reference: resolvedReference }).sort({ createdAt: 1 }).limit(200);
       console.log(`📤 [${socket.id}] Sending ${messages.length} messages to history`);
       
       socket.emit('chat:history', {
-        reference,
+        reference: resolvedReference,
         messages: messages.map(msg => ({
           id: msg._id,
           senderRole: msg.senderRole,
@@ -991,8 +1185,13 @@ io.on('connection', (socket) => {
 
   socket.on('chat:message', async (payload = {}, ack) => {
     try {
-      const chat = socket.data.chat;
-      if (!chat?.reference) {
+      const chat = socket.data.chat || {};
+      const reference = normalizeChatReference(payload.reference || chat.reference || '');
+      const role = String(payload.senderRole || chat.role || '').trim().toLowerCase();
+      const token = payload.token || chat.token || null;
+      const chatToken = payload.chatToken || chat.chatToken || null;
+
+      if (!reference || !role) {
         console.error(`❌ [${socket.id}] Not in a chat room`);
         if (typeof ack === 'function') ack({ ok: false, message: 'Join a chat room first' });
         return;
@@ -1004,12 +1203,12 @@ io.on('connection', (socket) => {
         return;
       }
 
-      console.log(`💬 [${socket.id}] Sending message to ${chat.reference}: "${cleanText.substring(0, 50)}..."`);
+      console.log(`💬 [${socket.id}] Sending message to ${reference}: "${cleanText.substring(0, 50)}..."`);
       
-      const auth = await authorizeChatAccess(chat.reference, {
-        role: chat.role,
-        token: chat.token,
-        chatToken: chat.chatToken
+      const auth = await authorizeChatAccess(reference, {
+        role,
+        token,
+        chatToken
       });
       if (!auth.ok) {
         console.error(`❌ [${socket.id}] Re-auth failed: ${auth.message}`);
@@ -1017,11 +1216,22 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Keep socket context synchronized with the latest valid reference.
+      socket.data.chat = {
+        ...chat,
+        reference,
+        role,
+        token,
+        chatToken,
+        name: String(payload.senderName || chat.name || auth.rider?.fullName || auth.admin?.username || 'Guest').trim()
+      };
+      socket.join(chatRoom(reference));
+
       const message = await ChatMessage.create({
-        reference: chat.reference,
-        senderRole: chat.role,
+        reference,
+        senderRole: role,
         senderId: auth.rider?.id || auth.admin?.id || null,
-        senderName: String(payload.senderName || chat.name || auth.rider?.fullName || auth.admin?.username || 'Guest').trim(),
+        senderName: socket.data.chat.name,
         text: cleanText
       });
 
@@ -1034,10 +1244,13 @@ io.on('connection', (socket) => {
         createdAt: message.createdAt
       };
 
-      console.log(`📡 [${socket.id}] Broadcasting message to room: ${chatRoom(chat.reference)}`);
-      io.to(chatRoom(chat.reference)).emit('chat:message', outgoing);
+      console.log(`📡 [${socket.id}] Broadcasting message to room: ${chatRoom(reference)}`);
+      io.to(chatRoom(reference)).emit('chat:message', outgoing);
       if (outgoing.senderRole === 'customer') {
-        notifyAssignedRiderChatMessage(chat.reference, outgoing);
+        notifyAssignedRiderChatMessage(reference, outgoing);
+      }
+      if (isDirectRiderChatReference(reference)) {
+        notifyDirectRiderChatMessage(reference, outgoing);
       }
       if (typeof ack === 'function') ack({ ok: true, message: outgoing });
     } catch (err) {
@@ -1053,8 +1266,18 @@ io.on('connection', (socket) => {
 
 // ================= ADMIN GET ALL RIDERS =================
 app.get('/api/admin/riders', authenticate, async (req, res) => {
-  const riders = await Rider.find().sort({ createdAt: -1 });
+  const riders = await Rider.find().select('-password').sort({ createdAt: -1 });
   res.json(riders);
+});
+
+app.get('/api/admin/riders/:id', authenticate, async (req, res) => {
+  try {
+    const rider = await Rider.findById(req.params.id).select('-password');
+    if (!rider) return res.status(404).json({ message: 'Rider not found' });
+    res.json({ rider });
+  } catch (err) {
+    res.status(400).json({ message: 'Error fetching rider', error: err.message });
+  }
 });
 
 // ================= ADMIN APPROVE/REJECT RIDER =================
@@ -1063,9 +1286,17 @@ app.put('/api/admin/riders/:id/status', authenticate, async (req, res) => {
     const { status } = req.body;
     if (!['approved', 'rejected'].includes(status))
       return res.status(400).json({ message: 'Invalid status' });
-    const rider = await Rider.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    const currentRider = await Rider.findById(req.params.id).select('-password');
+    if (!currentRider) return res.status(404).json({ message: 'Rider not found' });
+
+    const previousStatus = currentRider.status;
+    const rider = await Rider.findByIdAndUpdate(req.params.id, { status }, { new: true }).select('-password');
     if (!rider) return res.status(404).json({ message: 'Rider not found' });
-    res.json({ message: `Rider ${status}`, rider });
+
+    const publicRider = sanitizeRider(rider);
+    io.emit('rider:updated', { rider: publicRider, previousStatus, nextStatus: status });
+
+    res.json({ message: `Rider ${status}`, rider: publicRider });
   } catch (err) {
     res.status(400).json({ message: 'Error updating rider', error: err.message });
   }
@@ -1103,4 +1334,22 @@ app.get('/api/admin/dashboard/stats', authenticate, async (req, res) => {
 });
 
 // ================= SERVER START =================
-server.listen(PORT, () => console.log(`🚀 Global Sports Backend running on port ${PORT}`));
+function startServer(portIndex = 0) {
+  const port = FALLBACK_PORTS[portIndex] || DEFAULT_PORT;
+
+  server.once('error', (err) => {
+    if (err && err.code === 'EADDRINUSE' && portIndex < FALLBACK_PORTS.length - 1) {
+      console.warn(`Port ${port} is in use, trying ${FALLBACK_PORTS[portIndex + 1]}...`);
+      startServer(portIndex + 1);
+      return;
+    }
+
+    throw err;
+  });
+
+  server.listen(port, () => {
+    console.log(`🚀 Global Sports Backend running on port ${port}`);
+  });
+}
+
+startServer();

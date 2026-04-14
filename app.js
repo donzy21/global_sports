@@ -16,10 +16,10 @@ catch { /* Ignore storage access failures (privacy/tracking restrictions). */ }
 
 let API_URL = (() => {
 const override = safeStorageGet('gs_api_url');
-if (override) return override;
+if (override && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?\/api/i.test(override)) return override;
 const host = window.location.hostname;
 if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
-return 'https://globalsports-mall.me/api';
+return 'https://global-sports-backend.onrender.com/api';
 })();
 const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
 
@@ -27,19 +27,15 @@ function getApiCandidates() {
 const storedApi = safeStorageGet('gs_api_url') || null;
 const host = String(window.location.hostname || '').toLowerCase();
 const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-const sameOriginApi = window.location.origin && window.location.origin.startsWith('http')
-? `${window.location.origin}/api`
-: null;
 
 const localCandidates = isLocal ? ['http://localhost:5001/api', 'http://localhost:5000/api'] : [];
-const storedIsLocalOnly = storedApi && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?/i.test(storedApi);
-const safeStoredApi = (!isLocal && storedIsLocalOnly) ? null : storedApi;
+const storedIsAllowed = storedApi && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?\/api/i.test(storedApi);
+const safeStoredApi = storedIsAllowed ? storedApi : null;
 
 const list = [
-sameOriginApi,
 safeStoredApi,
 API_URL,
-'https://globalsports-mall.me/api',
+'https://global-sports-backend.onrender.com/api',
 ...localCandidates
 ].filter(Boolean);
 return [...new Set(list)];
@@ -797,37 +793,6 @@ showToast(ack?.message || 'Could not send message', 'error');
 failPendingMessage(pendingId);
 return;
 }
-
-async function deleteActiveChatHistory() {
-if (!activeChat?.reference) return;
-if (activeChat.role !== 'customer') {
-  showToast('Only customers can clear this chat', 'error');
-  return;
-}
-const confirmed = window.confirm('Delete this chat history? This cannot be undone.');
-if (!confirmed) return;
-
-try {
-  const res = await fetch(`${API_URL}/chat/${encodeURIComponent(activeChat.reference)}/clear`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      senderRole: 'customer',
-      chatToken: activeChat.chatToken || null,
-      token: activeChat.token || null
-    })
-  });
-  const data = await parseJsonSafe(res);
-  if (!res.ok) throw new Error(data?.message || 'Could not clear chat');
-
-  chatSeenMessageKeys.clear();
-  const listEl = document.getElementById('chatMessages');
-  if (listEl) listEl.innerHTML = '<div class="chat-empty">Chat cleared.</div>';
-  showToast('Chat deleted', 'success');
-} catch (err) {
-  showToast(err.message || 'Could not clear chat', 'error');
-}
-}
 resolvePendingMessage(pendingId, ack.message || {
 reference: activeChat.reference,
 senderRole: message.senderRole,
@@ -860,6 +825,39 @@ markChatAsRead(activeChat.reference, chatMessageTotals.get(activeChat.reference)
 console.error('❌ HTTP send failed:', err.message);
 showToast(err.message, 'error');
 failPendingMessage(pendingId);
+}
+}
+
+async function deleteActiveChatHistory() {
+if (!activeChat?.reference) return;
+if (activeChat.role !== 'customer') {
+  showToast('Only customers can clear this chat', 'error');
+  return;
+}
+const confirmed = window.confirm('Delete this chat history? This cannot be undone.');
+if (!confirmed) return;
+
+try {
+  const res = await fetch(`${API_URL}/chat/${encodeURIComponent(activeChat.reference)}/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      senderRole: 'customer',
+      chatToken: activeChat.chatToken || safeStorageGet(`gs_chat_token_${activeChat.reference}`) || null,
+      token: activeChat.chatToken || safeStorageGet(`gs_chat_token_${activeChat.reference}`) || null
+    })
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) throw new Error(data?.message || 'Could not clear chat');
+
+  chatSeenMessageKeys.clear();
+  const listEl = document.getElementById('chatMessages');
+  if (listEl) listEl.innerHTML = '<div class="chat-empty">Chat cleared.</div>';
+  removeSavedTrackChat(activeChat.reference);
+  updateRecentChatShortcut();
+  showToast('Chat deleted', 'success');
+} catch (err) {
+  showToast(err.message || 'Could not clear chat', 'error');
 }
 }
 }
@@ -974,26 +972,60 @@ try {
   const raw = safeStorageGet(SAVED_TRACKS_KEY);
   if (!raw) return [];
   const parsed = JSON.parse(raw);
-  return Array.isArray(parsed) ? parsed : [];
+  if (!Array.isArray(parsed)) return [];
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of parsed) {
+    const reference = normalizeChatReference(item?.reference);
+    if (!reference || seen.has(reference)) continue;
+    seen.add(reference);
+    unique.push({
+      ...item,
+      reference,
+      updatedAt: item.updatedAt || new Date().toISOString()
+    });
+  }
+
+  return unique.sort((a, b) => {
+    const left = new Date(b.updatedAt || 0).getTime();
+    const right = new Date(a.updatedAt || 0).getTime();
+    if (left !== right) return left - right;
+    return String(b.reference || '').localeCompare(String(a.reference || ''));
+  });
 } catch {
   return [];
 }
 }
 
 function saveTrackedChat(data) {
-if (!data?.reference) return;
-const existing = getSavedTrackChats().filter(item => item?.reference && item.reference !== data.reference);
+const reference = normalizeChatReference(data?.reference);
+if (!reference) return;
+
+const remaining = getSavedTrackChats().filter((item) => normalizeChatReference(item.reference) !== reference);
 const nextItem = {
-  reference: data.reference,
+  reference,
   riderName: data.riderName || null,
   customerName: data.customerName || null,
-  chatToken: data.chatToken || safeStorageGet(`gs_chat_token_${data.reference}`) || null,
+  chatToken: data.chatToken || safeStorageGet(`gs_chat_token_${reference}`) || null,
   status: data.status || null,
   updatedAt: new Date().toISOString()
 };
-existing.unshift(nextItem);
-safeStorageSet(SAVED_TRACKS_KEY, JSON.stringify(existing.slice(0, 8)));
-safeStorageSet(LAST_TRACKED_REFERENCE_KEY, data.reference);
+
+safeStorageSet(SAVED_TRACKS_KEY, JSON.stringify([nextItem, ...remaining].slice(0, 8)));
+safeStorageSet(LAST_TRACKED_REFERENCE_KEY, reference);
+}
+
+function removeSavedTrackChat(reference) {
+const normalized = normalizeChatReference(reference);
+if (!normalized) return;
+
+const remaining = getSavedTrackChats().filter((item) => normalizeChatReference(item.reference) !== normalized);
+safeStorageSet(SAVED_TRACKS_KEY, JSON.stringify(remaining));
+const lastTracked = normalizeChatReference(safeStorageGet(LAST_TRACKED_REFERENCE_KEY));
+if (lastTracked === normalized) {
+  safeStorageRemove(LAST_TRACKED_REFERENCE_KEY);
+}
 }
 
 function updateRecentChatShortcut(data) {
@@ -1016,27 +1048,50 @@ refEl.textContent = saved.length === 1 ? '1 saved chat' : `${saved.length} saved
 listEl.innerHTML = saved.map((item) => {
   const title = item.riderName ? `Chat with ${escHtml(item.riderName)}` : 'Open Chat';
   return `
-    <button class="saved-chat-item" data-chat-reference="${escHtml(item.reference)}" onclick="openSavedChat('${escHtml(item.reference)}')">
+    <div class="saved-chat-item" data-chat-reference="${escHtml(item.reference)}">
       <span class="saved-chat-item-main">
-        <strong>${title}</strong>
-        <small>Order ${escHtml(item.reference)}</small>
+        <button type="button" class="saved-chat-open" onclick="openSavedChat('${escHtml(item.reference)}')">
+          <strong>${title}</strong>
+          <small>Order ${escHtml(item.reference)}</small>
+        </button>
       </span>
-      <span class="saved-chat-item-action">Open</span>
-    </button>
+      <span class="saved-chat-item-actions">
+        <button type="button" class="saved-chat-item-action" onclick="openSavedChat('${escHtml(item.reference)}')">Open</button>
+        <button type="button" class="saved-chat-item-delete" onclick="deleteSavedChat('${escHtml(item.reference)}')">Delete</button>
+      </span>
+    </div>
   `;
 }).join('');
 card.style.display = 'block';
 }
 
+function deleteSavedChat(reference) {
+const normalizedReference = normalizeChatReference(reference);
+if (!normalizedReference) return;
+
+const confirmed = window.confirm('Delete this saved chat from your device?');
+if (!confirmed) return;
+
+removeSavedTrackChat(normalizedReference);
+safeStorageRemove(`gs_chat_token_${normalizedReference}`);
+
+if (currentTrackData?.reference && normalizeChatReference(currentTrackData.reference) === normalizedReference) {
+  currentTrackData = { ...currentTrackData, chatToken: null };
+}
+
+updateRecentChatShortcut();
+showToast('Saved chat deleted', 'success');
+}
+
 async function resumeLastTrackedChat() {
-const reference = currentTrackData?.reference || safeStorageGet(LAST_TRACKED_REFERENCE_KEY) || '';
+const reference = normalizeChatReference(currentTrackData?.reference || safeStorageGet(LAST_TRACKED_REFERENCE_KEY) || '');
 if (!reference) {
   showToast('Track an order first to open chat quickly', 'error');
   return;
 }
 
 let data = currentTrackData;
-if (!data || data.reference !== reference) {
+if (!data || normalizeChatReference(data.reference) !== reference) {
   data = await fetchTrackData(reference);
 }
 
@@ -1052,21 +1107,22 @@ openCustomerChatFromTrack();
 }
 
 async function openSavedChat(reference) {
-const saved = getSavedTrackChats().find(item => item.reference === reference);
+const normalizedReference = normalizeChatReference(reference);
+const saved = getSavedTrackChats().find(item => normalizeChatReference(item.reference) === normalizedReference);
 if (!saved) {
   showToast('Saved chat not found', 'error');
   return;
 }
 
-let data = currentTrackData && currentTrackData.reference === reference ? currentTrackData : null;
-if (!data) data = await fetchTrackData(reference);
+let data = currentTrackData && normalizeChatReference(currentTrackData.reference) === normalizedReference ? currentTrackData : null;
+if (!data) data = await fetchTrackData(normalizedReference);
 if (!data) {
   showToast('Could not load saved chat order', 'error');
   return;
 }
 
-currentTrackData = { ...data, chatToken: data.chatToken || saved.chatToken || null };
-if (currentTrackData.chatToken) safeStorageSet(`gs_chat_token_${reference}`, currentTrackData.chatToken);
+currentTrackData = { ...data, reference: normalizedReference, chatToken: data.chatToken || saved.chatToken || null };
+if (currentTrackData.chatToken) safeStorageSet(`gs_chat_token_${normalizedReference}`, currentTrackData.chatToken);
 saveTrackedChat(currentTrackData);
 updateRecentChatShortcut(currentTrackData);
 openCustomerChatFromTrack();
@@ -1980,8 +2036,8 @@ riderSSE.addEventListener('chat_message', (e) => {
       markChatAsRead(payload.reference, total);
     }
 
-    if ((payload.senderRole || '') === 'customer' && !viewingSameChat) {
-      const sender = payload.senderName || 'Customer';
+    if ((payload.senderRole || '') !== 'rider' && !viewingSameChat) {
+      const sender = payload.senderName || ((payload.senderRole || '') === 'admin' ? 'Admin' : 'Customer');
       showToast(`New message from ${sender}`, 'success');
       playChatNotificationTone();
       if (document.hidden && canShowBrowserNotifications()) {
@@ -2222,6 +2278,10 @@ return String(str)
 .replace(/'/g, '&#39;');
 }
 
+function normalizeChatReference(reference) {
+return String(reference || '').trim();
+}
+
 function openCustomerChatFromTrack() {
 if (!currentTrackData?.reference) {
 showToast('Track an order first to open chat', 'error');
@@ -2277,6 +2337,26 @@ token: riderToken,
 name: riderInfo?.fullName || 'Rider',
 title: `Customer Chat`,
 subtitle: customerName ? `Conversation with ${customerName}` : `Conversation for order ${reference}`
+});
+}
+
+function openRiderAdminChat() {
+const riderId = String(riderInfo?.id || riderInfo?._id || '').trim();
+if (!riderToken || !riderId) {
+showToast('Please login as rider first', 'error');
+return;
+}
+
+const reference = `rider:${riderId}`;
+clearChatUnreadCount(reference);
+markChatAsRead(reference, chatMessageTotals.get(reference) || getChatSeenCount(reference) || 0);
+openChatModal({
+reference,
+role: 'rider',
+token: riderToken,
+name: riderInfo.fullName || 'Rider',
+title: 'Message Admin',
+subtitle: 'Direct real-time chat with the admin team'
 });
 }
 
