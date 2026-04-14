@@ -19,6 +19,7 @@ const allowedOrigins = new Set(
     .map((value) => value.trim())
     .filter(Boolean)
 );
+const strictCors = /^(1|true|yes)$/i.test(String(process.env.CORS_STRICT || '').trim());
 
 function isAllowedOrigin(origin) {
   // If no allowlist is configured, keep CORS permissive for hosted frontend compatibility.
@@ -60,15 +61,21 @@ function isAllowedOrigin(origin) {
   return false;
 }
 
-const corsOptions = {
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
-      return callback(null, true);
+const corsOptions = strictCors
+  ? {
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Origin not allowed by CORS'));
+      },
+      credentials: true
     }
-    return callback(new Error('Origin not allowed by CORS'));
-  },
-  credentials: true
-};
+  : {
+      // Default to permissive cross-origin access for hosted web clients.
+      origin: true,
+      credentials: false
+    };
 
 const io = new Server(server, { cors: corsOptions });
 
