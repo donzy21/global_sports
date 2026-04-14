@@ -15,8 +15,20 @@ catch { /* Ignore storage access failures (privacy/tracking restrictions). */ }
 }
 
 let API_URL = (() => {
+const queryApi = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('api') || '';
+  } catch {
+    return '';
+  }
+})();
+if (queryApi && /^https?:\/\//i.test(queryApi)) {
+  return queryApi.replace(/\/+$/, '').replace(/\/api$/i, '') + '/api';
+}
 const override = safeStorageGet('gs_api_url');
-if (override && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?\/api/i.test(override)) return override;
+if (override && /^https?:\/\//i.test(override)) {
+  return override.replace(/\/+$/, '').replace(/\/api$/i, '') + '/api';
+}
 const host = window.location.hostname;
 if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
 return 'https://global-sports-backend.onrender.com/api';
@@ -27,14 +39,29 @@ function getApiCandidates() {
 const storedApi = safeStorageGet('gs_api_url') || null;
 const host = String(window.location.hostname || '').toLowerCase();
 const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+const queryApi = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('api') || '';
+  } catch {
+    return '';
+  }
+})();
+const sameOriginApi = window.location.origin && /^https?:/i.test(window.location.origin)
+  ? `${window.location.origin.replace(/\/+$/, '')}/api`
+  : null;
 
 const localCandidates = isLocal ? ['http://localhost:5001/api', 'http://localhost:5000/api'] : [];
-const storedIsAllowed = storedApi && /https?:\/\/(localhost|127\.0\.0\.1|::1)(:\d+)?\/api/i.test(storedApi);
-const safeStoredApi = storedIsAllowed ? storedApi : null;
+const normalizeApiCandidate = (value) => {
+  const raw = String(value || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  return raw.replace(/\/+$/, '').replace(/\/api$/i, '') + '/api';
+};
 
 const list = [
-safeStoredApi,
+normalizeApiCandidate(queryApi),
+normalizeApiCandidate(storedApi),
 API_URL,
+normalizeApiCandidate(sameOriginApi),
 'https://global-sports-backend.onrender.com/api',
 ...localCandidates
 ].filter(Boolean);
@@ -49,12 +76,23 @@ catch { return { message: text }; }
 }
 
 function looksLikeProductsPayload(data) {
-if (!Array.isArray(data)) return false;
-if (!data.length) return true;
-const sample = data[0] || {};
+const products = normalizeProductsPayload(data);
+if (!Array.isArray(products)) return false;
+if (!products.length) return true;
+const sample = products[0] || {};
 return typeof sample === 'object' && (
   'name' in sample || 'price' in sample || 'category' in sample
 );
+}
+
+function normalizeProductsPayload(data) {
+if (Array.isArray(data)) return data;
+if (!data || typeof data !== 'object') return [];
+if (Array.isArray(data.products)) return data.products;
+if (Array.isArray(data.items)) return data.items;
+if (Array.isArray(data.data)) return data.data;
+if (data.data && Array.isArray(data.data.products)) return data.data.products;
+return [];
 }
 
 async function fetchProductsFromBase(base) {
@@ -71,7 +109,7 @@ if (!looksLikeProductsPayload(data)) {
   throw new Error('Response is JSON but not a products payload');
 }
 
-return data;
+return normalizeProductsPayload(data);
 }
 
 async function discoverApiUrl() {
