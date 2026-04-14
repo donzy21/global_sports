@@ -20,14 +20,9 @@ const allowedOrigins = new Set(
     .filter(Boolean)
 );
 
-if (!allowedOrigins.size) {
-  allowedOrigins.add('http://localhost:5000');
-  allowedOrigins.add('http://localhost:5001');
-  allowedOrigins.add('http://127.0.0.1:5000');
-  allowedOrigins.add('http://127.0.0.1:5001');
-}
-
 function isAllowedOrigin(origin) {
+  // If no allowlist is configured, keep CORS permissive for hosted frontend compatibility.
+  if (!allowedOrigins.size) return true;
   if (!origin) return true;
   return allowedOrigins.has(origin);
 }
