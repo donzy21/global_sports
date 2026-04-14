@@ -13,6 +13,10 @@ services:
     sync: false
   - key: JWT_SECRET
     sync: false
+  - key: RIDER_JWT_SECRET
+    sync: false
+  - key: CORS_ORIGINS
+    sync: false
   region: oregon
   buildCommand: npm install
   startCommand: node server.js

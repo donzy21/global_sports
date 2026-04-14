@@ -31,6 +31,9 @@ if (override && /^https?:\/\//i.test(override)) {
 }
 const host = window.location.hostname;
 if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:5001/api';
+if (window.location.origin && /^https?:/i.test(window.location.origin)) {
+  return `${window.location.origin.replace(/\/+$/, '')}/api`;
+}
 return 'https://global-sports-backend.onrender.com/api';
 })();
 const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
@@ -60,8 +63,8 @@ const normalizeApiCandidate = (value) => {
 const list = [
 normalizeApiCandidate(queryApi),
 normalizeApiCandidate(storedApi),
-API_URL,
 normalizeApiCandidate(sameOriginApi),
+API_URL,
 'https://global-sports-backend.onrender.com/api',
 ...localCandidates
 ].filter(Boolean);
@@ -2008,7 +2011,35 @@ lastError = 'Network connection failed. Check internet/server and try again.';
 }
 
 if (!sawAuthError) {
-errEl.textContent = 'Could not reach rider login service. Make sure backend is running on port 5001.';
+  try {
+    await discoverApiUrl();
+    const res = await fetch(`${API_URL}/riders/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, password })
+    });
+    const data = await parseJsonSafe(res);
+    if (res.ok && data && data.token) {
+      safeStorageSet('gs_api_url', API_URL);
+      riderToken = data.token;
+      riderInfo  = data.rider;
+      localStorage.setItem('gs_rider_token', riderToken);
+      localStorage.setItem('gs_rider_info', JSON.stringify(riderInfo));
+      showRiderNav(true);
+      document.getElementById('riderWelcome').textContent = `Welcome, ${riderInfo.fullName}`;
+      showSection('riderDash');
+      connectRiderSSE();
+      showToast(`Welcome, ${riderInfo.fullName}!`, 'success');
+      return;
+    }
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      errEl.textContent = (data && data.message) ? data.message : `Login failed (${res.status})`;
+      return;
+    }
+  } catch {
+    // Fall through to user-visible generic connectivity guidance.
+  }
+
+errEl.textContent = 'Could not reach rider login service. Confirm backend URL/CORS or open with ?api=https://your-backend-domain/api';
 return;
 }
 errEl.textContent = lastError;

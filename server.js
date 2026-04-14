@@ -24,7 +24,40 @@ function isAllowedOrigin(origin) {
   // If no allowlist is configured, keep CORS permissive for hosted frontend compatibility.
   if (!allowedOrigins.size) return true;
   if (!origin) return true;
-  return allowedOrigins.has(origin);
+
+  const normalizedOrigin = String(origin || '').replace(/\/+$/, '');
+  if (allowedOrigins.has('*')) return true;
+  if (allowedOrigins.has(origin) || allowedOrigins.has(normalizedOrigin)) return true;
+
+  let originUrl;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  for (const allowed of allowedOrigins) {
+    const candidate = String(allowed || '').trim().replace(/\/+$/, '');
+    if (!candidate || candidate === '*') continue;
+
+    // Support host-only entries like "example.com".
+    if (!/^https?:\/\//i.test(candidate) && !candidate.startsWith('*.')) {
+      if (originUrl.hostname === candidate) return true;
+      continue;
+    }
+
+    // Support wildcard subdomains like "*.example.com".
+    if (candidate.startsWith('*.')) {
+      const baseHost = candidate.slice(2).toLowerCase();
+      const host = String(originUrl.hostname || '').toLowerCase();
+      if (host === baseHost || host.endsWith(`.${baseHost}`)) return true;
+      continue;
+    }
+
+    if (candidate === normalizedOrigin) return true;
+  }
+
+  return false;
 }
 
 const corsOptions = {
