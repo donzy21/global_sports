@@ -6,3 +6,4 @@ node_modules/
 create_test_order.js
 test_chat.js
 test_chat_real.js
+token.txt

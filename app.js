@@ -14,6 +14,12 @@ try { localStorage.removeItem(key); }
 catch { /* Ignore storage access failures (privacy/tracking restrictions). */ }
 }
 
+const APP_CONFIG = (() => {
+  if (typeof window === 'undefined') return {};
+  const candidate = window.GS_CONFIG;
+  return candidate && typeof candidate === 'object' ? candidate : {};
+})();
+
 let API_URL = (() => {
 const queryApi = (() => {
   try {
@@ -22,8 +28,12 @@ const queryApi = (() => {
     return '';
   }
 })();
+const configuredApi = String(APP_CONFIG.apiUrl || '').trim();
 if (queryApi && /^https?:\/\//i.test(queryApi)) {
   return queryApi.replace(/\/+$/, '').replace(/\/api$/i, '') + '/api';
+}
+if (configuredApi && /^https?:\/\//i.test(configuredApi)) {
+  return configuredApi.replace(/\/+$/, '').replace(/\/api$/i, '') + '/api';
 }
 const override = safeStorageGet('gs_api_url');
 if (override && /^https?:\/\//i.test(override)) {
@@ -36,12 +46,13 @@ if (window.location.origin && /^https?:/i.test(window.location.origin)) {
 }
 return 'https://global-sports-backend.onrender.com/api';
 })();
-const PAYSTACK_PUBLIC_KEY='pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312';
+const PAYSTACK_PUBLIC_KEY = String(APP_CONFIG.paystackPublicKey || 'pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312').trim();
 
 function getApiCandidates() {
 const storedApi = safeStorageGet('gs_api_url') || null;
 const host = String(window.location.hostname || '').toLowerCase();
 const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+const configuredApi = String(APP_CONFIG.apiUrl || '').trim();
 const queryApi = (() => {
   try {
     return new URLSearchParams(window.location.search).get('api') || '';
@@ -62,6 +73,7 @@ const normalizeApiCandidate = (value) => {
 
 const list = [
 normalizeApiCandidate(queryApi),
+normalizeApiCandidate(configuredApi),
 normalizeApiCandidate(storedApi),
 normalizeApiCandidate(sameOriginApi),
 API_URL,
