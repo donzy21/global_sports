@@ -13,7 +13,6 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 const allowedOrigins = new Set(
   String(process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '')
     .split(',')
@@ -111,17 +110,6 @@ if (fs.existsSync(adminDashboardDir)) {
   app.get('/admin-dashboard.js', (req, res) => {
     res.sendFile(path.join(adminDashboardDir, 'admin-dashboard.js'));
   });
-} else {
-  const missingDashboard = (req, res) => {
-    res.status(404).json({
-      message: 'Admin dashboard bundle is not available in this deployment.'
-    });
-  };
-  app.get('/admin-dashboard', missingDashboard);
-  app.get('/admin-dashboard/', missingDashboard);
-  app.get('/admin-dashboard.html', missingDashboard);
-  app.get('/admin-rider-command.html', missingDashboard);
-  app.get('/admin-dashboard.js', missingDashboard);
 }
 
 // ================= KEEP-ALIVE ROUTE =================
@@ -151,17 +139,11 @@ app.get('/api/', (req, res) => {
 
 // ================= CONFIGURATION =================
 const DEFAULT_PORT = Number(process.env.PORT || 5000);
-const FALLBACK_PORTS = (IS_PRODUCTION && process.env.PORT
-  ? [DEFAULT_PORT]
-  : [DEFAULT_PORT, 5000, 5001, 5002, 5003]
-).filter((port, index, list) => Number.isFinite(port) && list.indexOf(port) === index);
+const FALLBACK_PORTS = [DEFAULT_PORT, 5000, 5001, 5002, 5003].filter((port, index, list) => Number.isFinite(port) && list.indexOf(port) === index);
 const MONGO_URI = process.env.MONGO_URI;
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET || process.env.SECRET_KEY;
-const JWT_SECRET = process.env.JWT_SECRET || (IS_PRODUCTION ? '' : 'secret123');
-const RIDER_JWT_SECRET = process.env.RIDER_JWT_SECRET || (IS_PRODUCTION ? '' : 'rider_secret_456');
-const STRICT_CUSTOMER_CHAT_TOKEN = /^(1|true|yes)$/i.test(
-  String(process.env.STRICT_CUSTOMER_CHAT_TOKEN || (IS_PRODUCTION ? 'true' : 'false')).trim()
-);
+const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
+const RIDER_JWT_SECRET = process.env.RIDER_JWT_SECRET || 'rider_secret_456';
 const SHOP_LOCATION = {
   // Default base location is Kumasi-Tanoso near AAMUSTED unless overridden by environment variables.
   lat: Number(process.env.SHOP_LAT || 6.7068),
@@ -178,24 +160,10 @@ const CHAT_RETENTION_DAYS = Math.max(1, Number(process.env.CHAT_RETENTION_DAYS |
 const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
 const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
 
-if (!MONGO_URI && IS_PRODUCTION) {
-  throw new Error('MONGO_URI is required in production.');
-}
-if ((!JWT_SECRET || !RIDER_JWT_SECRET) && IS_PRODUCTION) {
-  throw new Error('JWT_SECRET and RIDER_JWT_SECRET are required in production.');
-}
-if (!PAYSTACK_SECRET) {
-  console.warn('PAYSTACK_SECRET is not set. Payment verification endpoints will fail until configured.');
-}
-
 // ================= DATABASE CONNECTION =================
-if (MONGO_URI) {
-  mongoose.connect(MONGO_URI)
-    .then(() => console.log('MongoDB Connected'))
-    .catch(err => console.error('MongoDB connection error:', err));
-} else {
-  console.error('MongoDB connection skipped: MONGO_URI is missing.');
-}
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // ================= MODELS =================
 const Product = mongoose.model('Product', new mongoose.Schema({
@@ -624,9 +592,6 @@ async function authorizeChatAccess(reference, access = {}) {
   }
 
   if (role === 'customer') {
-    if (STRICT_CUSTOMER_CHAT_TOKEN && access.chatToken !== order.chatToken) {
-      return { ok: false, status: 401, message: 'Invalid chat token' };
-    }
     // Token mismatches are treated as stale client state; return canonical token so client can self-heal.
     return { ok: true, order, tokenRefreshed: !access.chatToken || access.chatToken !== order.chatToken, reference };
   }
@@ -671,9 +636,13 @@ const authenticate = (req, res, next) => {
 };
 
 const authenticateRider = (req, res, next) => {
-  const authHeader = req.headers['authorization'] || '';
-  // FIX: Properly handle Bearer prefix.
-  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  // Check Authorization header first, then query params (for EventSource/SSE)
+  let token = req.query.token || '';
+  
+  if (!token) {
+    const authHeader = req.headers['authorization'] || '';
+    token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  }
 
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
