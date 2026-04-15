@@ -794,6 +794,46 @@ listEl.innerHTML = `<div class="chat-empty">📌 Using HTTP mode (slower). Messa
 chatSocket.on('error', (err) => {
 console.error('❌ Chat Socket Error:', err);
 });
+
+// Setup mobile keyboard handlers for this chat session
+setTimeout(() => setupChatInputMobileHandlers(), 100);
+}
+
+// Mobile keyboard handler for iOS
+function setupChatInputMobileHandlers() {
+const input = document.getElementById('chatInput');
+if (!input) return;
+
+const compose = document.querySelector('.chat-compose');
+const modal = document.querySelector('.chat-modal');
+
+if (input.dataset.mobileHandlersSetup === 'true') return;
+input.dataset.mobileHandlersSetup = 'true';
+
+// Handle focus - scroll input into view on mobile keyboards
+input.addEventListener('focus', (e) => {
+  if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return;
+  
+  // Prevent zoom on input focus
+  input.style.fontSize = '16px';
+  
+  setTimeout(() => {
+    if (compose && modal) {
+      const rect = compose.getBoundingClientRect();
+      const modalRect = modal.getBoundingClientRect();
+      
+      // If compose is below viewport, scroll it into view
+      if (rect.bottom > window.innerHeight) {
+        compose.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }
+  }, 100);
+}, { passive: true });
+
+// Handle blur - restore styles
+input.addEventListener('blur', () => {
+  input.style.fontSize = '16px';
+}, { passive: true });
 }
 
 function closeChatModal() {

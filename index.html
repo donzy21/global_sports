@@ -437,7 +437,7 @@
     </div>
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-compose">
-      <input id="chatInput" type="text" placeholder="Type your message" onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage();}">
+      <input id="chatInput" type="text" placeholder="Type your message" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text" onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage();}">
       <button class="submit-btn chat-send-btn" onclick="sendChatMessage()">Send</button>
     </div>
   </div>
