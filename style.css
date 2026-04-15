@@ -18,13 +18,15 @@
 
 /* ===================== RESET ===================== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; padding-left: max(env(safe-area-inset-left, 0), 12px); padding-right: max(env(safe-area-inset-right, 0), 12px); }
 body {
   font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
   overflow-x: hidden;
+  padding-top: max(env(safe-area-inset-top, 0), 0);
+  padding-bottom: max(env(safe-area-inset-bottom, 0), 8px);
 }
 a { color: inherit; text-decoration: none; }
 input, select, button { font-family: var(--font-body); outline: none; }
@@ -1590,6 +1592,8 @@ body.chat-modal-open {
   }
   .page-shell {
     padding: 24px 12px 40px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
   }
   .page-card {
     padding: 28px 18px;
@@ -2285,4 +2289,51 @@ body.chat-modal-open {
 @media (max-width: 640px) {
   .search-bar-wrapper { padding: 0 16px; }
   .search-bar { max-width: 100%; }
+}
+/* ===================== IPHONE NOTCH & HIGH DPI OPTIMIZATION ===================== */
+@supports (padding: max(0px)) {
+  @media (max-width: 1024px) {
+    body {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    
+    .page-shell {
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+    }
+    
+    .header-inner {
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+    }
+    
+    /* iOS HIG: 44x44px minimum touch targets */
+    .submit-btn, .nav-btn, .chat-send-btn, button,
+    input[type="button"], input[type="submit"], .action-btn {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    
+    /* Prevent iOS zoom: form inputs must be 16px font */
+    input[type="text"], input[type="email"], input[type="password"],
+    input[type="tel"], input[type="number"], textarea, select {
+      min-height: 44px;
+      font-size: 16px !important;
+      padding: 10px 12px;
+    }
+    
+    input:focus, textarea:focus, select:focus {
+      font-size: 16px !important;
+      zoom: 1;
+    }
+  }
+}
+
+/* High DPI screens (460+ ppi like iPhone 12 Pro) */
+@media (-webkit-min-device-pixel-ratio: 3), (min-resolution: 450dpi) {
+  .submit-btn, button, .nav-btn {
+    min-height: 48px;
+    min-width: 48px;
+  }
 }
