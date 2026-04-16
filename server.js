@@ -159,6 +159,7 @@ const ADMIN_WHATSAPP_TO    = process.env.ADMIN_WHATSAPP_TO;
 const CHAT_RETENTION_DAYS = Math.max(1, Number(process.env.CHAT_RETENTION_DAYS || 90));
 const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
 const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
+const LOW_STOCK_THRESHOLD = Math.max(0, Number(process.env.LOW_STOCK_THRESHOLD || 5));
 
 // ================= DATABASE CONNECTION =================
 mongoose.connect(MONGO_URI)
@@ -518,6 +519,103 @@ function getDirectRiderId(reference) {
   return normalized.slice(delimiterIndex + 1).trim();
 }
 
+function toPositiveInteger(value, fallback = 1) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const normalized = Math.floor(num);
+  return normalized > 0 ? normalized : fallback;
+}
+
+function buildStockRequirements(cart = []) {
+  const requirements = new Map();
+
+  for (const entry of Array.isArray(cart) ? cart : []) {
+    const rawId = String(entry?._id || entry?.productId || entry?.id || '').trim();
+    if (!rawId || !mongoose.Types.ObjectId.isValid(rawId)) {
+      throw new Error('Each cart item must include a valid product id.');
+    }
+
+    const quantity = toPositiveInteger(entry?.quantity ?? entry?.qty, 1);
+    const key = String(rawId);
+    requirements.set(key, (requirements.get(key) || 0) + quantity);
+  }
+
+  return Array.from(requirements.entries()).map(([productId, quantity]) => ({ productId, quantity }));
+}
+
+function buildLowStockAlerts(products = [], threshold = LOW_STOCK_THRESHOLD) {
+  const safeThreshold = Math.max(0, Number(threshold || 0));
+  return (Array.isArray(products) ? products : [])
+    .filter((product) => Number(product?.stock ?? 0) <= safeThreshold)
+    .map((product) => ({
+      productId: String(product._id),
+      name: product.name,
+      stock: Number(product.stock || 0),
+      threshold: safeThreshold,
+      status: Number(product.stock || 0) === 0 ? 'out_of_stock' : 'low_stock'
+    }))
+    .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name));
+}
+
+function parseLowStockThreshold(candidate) {
+  if (candidate == null || candidate === '') return LOW_STOCK_THRESHOLD;
+  const parsed = Number(candidate);
+  if (!Number.isFinite(parsed)) return LOW_STOCK_THRESHOLD;
+  return Math.max(0, Math.floor(parsed));
+}
+
+async function reserveStockOrThrow(cart, session) {
+  const requirements = buildStockRequirements(cart);
+  if (!requirements.length) {
+    throw new Error('Cart is empty or invalid.');
+  }
+
+  const productIds = requirements.map((item) => item.productId);
+  const products = await Product.find({ _id: { $in: productIds } }).session(session);
+  const stockById = new Map(products.map((product) => [String(product._id), product]));
+
+  const missingProducts = [];
+  const shortages = [];
+
+  for (const item of requirements) {
+    const product = stockById.get(item.productId);
+    if (!product) {
+      missingProducts.push(item.productId);
+      continue;
+    }
+    const available = Number(product.stock || 0);
+    if (available < item.quantity) {
+      shortages.push({
+        productId: item.productId,
+        name: product.name,
+        requested: item.quantity,
+        available
+      });
+    }
+  }
+
+  if (missingProducts.length || shortages.length) {
+    const err = new Error('One or more items are out of stock.');
+    err.code = 'INSUFFICIENT_STOCK';
+    err.details = { missingProducts, shortages };
+    throw err;
+  }
+
+  const operations = requirements.map((item) => ({
+    updateOne: {
+      filter: { _id: item.productId, stock: { $gte: item.quantity } },
+      update: { $inc: { stock: -item.quantity } }
+    }
+  }));
+
+  const writeResult = await Product.bulkWrite(operations, { session, ordered: true });
+  if (writeResult.modifiedCount !== requirements.length) {
+    const err = new Error('Stock changed while processing your order. Please try again.');
+    err.code = 'INSUFFICIENT_STOCK';
+    throw err;
+  }
+}
+
 async function findLatestOrderByReference(reference) {
   return Order.findOne({ reference }).sort({ date: -1, _id: -1 });
 }
@@ -712,7 +810,33 @@ app.get('/api/products', async (req, res) => {
 
 app.get('/api/admin/products', authenticate, async (req, res) => {
   const products = await Product.find();
+  const lowStockThreshold = parseLowStockThreshold(req.query.lowStockThreshold);
+  const lowStockAlerts = buildLowStockAlerts(products, lowStockThreshold);
+  const includeAlerts = /^(1|true|yes)$/i.test(String(req.query.includeAlerts || ''));
+
+  if (includeAlerts) {
+    return res.json({
+      products,
+      lowStockThreshold,
+      lowStockCount: lowStockAlerts.length,
+      lowStockAlerts
+    });
+  }
+
+  res.setHeader('X-Low-Stock-Count', String(lowStockAlerts.length));
+  res.setHeader('X-Low-Stock-Threshold', String(lowStockThreshold));
   res.json(products);
+});
+
+app.get('/api/admin/products/alerts', authenticate, async (req, res) => {
+  const products = await Product.find();
+  const lowStockThreshold = parseLowStockThreshold(req.query.lowStockThreshold);
+  const lowStockAlerts = buildLowStockAlerts(products, lowStockThreshold);
+  res.json({
+    lowStockThreshold,
+    lowStockCount: lowStockAlerts.length,
+    lowStockAlerts
+  });
 });
 
 app.post('/api/products', authenticate, async (req, res) => {
@@ -774,6 +898,57 @@ app.delete('/api/admin/products/:id', authenticate, async (req, res) => {
 });
 
 // ================= ORDER ROUTES =================
+app.post('/api/orders/validate-stock', async (req, res) => {
+  const { cart } = req.body || {};
+  try {
+    const requirements = buildStockRequirements(cart);
+    if (!requirements.length) {
+      return res.status(400).json({ message: 'Cart is empty or invalid.' });
+    }
+
+    const productIds = requirements.map((item) => item.productId);
+    const products = await Product.find({ _id: { $in: productIds } }).lean();
+    const stockById = new Map(products.map((product) => [String(product._id), product]));
+
+    const missingProducts = [];
+    const shortages = [];
+
+    for (const item of requirements) {
+      const product = stockById.get(item.productId);
+      if (!product) {
+        missingProducts.push(item.productId);
+        continue;
+      }
+      const available = Number(product.stock || 0);
+      if (available < item.quantity) {
+        shortages.push({
+          productId: item.productId,
+          name: product.name,
+          requested: item.quantity,
+          available
+        });
+      }
+    }
+
+    if (missingProducts.length || shortages.length) {
+      return res.status(409).json({
+        message: 'This order is beyond available stock. Please reduce item quantity and try again.',
+        stock: { missingProducts, shortages }
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: 'Stock is available for this order.'
+    });
+  } catch (err) {
+    if (err.message && /valid product id/i.test(err.message)) {
+      return res.status(400).json({ message: err.message });
+    }
+    return res.status(500).json({ message: 'Could not validate stock availability right now.' });
+  }
+});
+
 app.post('/api/orders/verify', async (req, res) => {
   const { reference, cart, customer } = req.body;
   try {
@@ -793,18 +968,47 @@ app.post('/api/orders/verify', async (req, res) => {
       if (Math.abs(paidAmount - expectedOnlinePayment) > 0.5) {
         return res.status(400).json({ message: 'Payment amount does not match the products subtotal.' });
       }
-      const order = await Order.create({
-        reference,
-        subtotal,
-        deliveryFee: deliveryQuote.deliveryFee,
-        deliveryDistanceKm: deliveryQuote.distanceKm,
-        deliveryDurationMin: deliveryQuote.durationMin,
-        chatToken: crypto.randomBytes(16).toString('hex'),
-        items: cart,
-        amount: expectedOnlinePayment,
-        customer,
-        status: 'paid'
-      });
+
+      const session = await mongoose.startSession();
+      let order;
+      let createdNow = false;
+      try {
+        await session.withTransaction(async () => {
+          const existingOrder = await Order.findOne({ reference }).session(session);
+          if (existingOrder) {
+            order = existingOrder;
+            return;
+          }
+
+          await reserveStockOrThrow(cart, session);
+          const created = await Order.create([{
+            reference,
+            subtotal,
+            deliveryFee: deliveryQuote.deliveryFee,
+            deliveryDistanceKm: deliveryQuote.distanceKm,
+            deliveryDurationMin: deliveryQuote.durationMin,
+            chatToken: crypto.randomBytes(16).toString('hex'),
+            items: cart,
+            amount: expectedOnlinePayment,
+            customer,
+            status: 'paid'
+          }], { session });
+          order = created[0];
+          createdNow = true;
+        });
+      } finally {
+        session.endSession();
+      }
+
+      if (!createdNow) {
+        return res.json({
+          message: 'Payment already verified and order exists',
+          order,
+          deliveryQuote,
+          alreadyProcessed: true
+        });
+      }
+
       await sendWhatsAppNotification(order);
       notifyRiders('new_order', {
         orderId:  order._id,
@@ -826,6 +1030,12 @@ app.post('/api/orders/verify', async (req, res) => {
       return res.json({ message: 'Payment failed or incomplete' });
     }
   } catch (err) {
+    if (err.code === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Order could not be completed because one or more items are out of stock.',
+        ...(err.details ? { stock: err.details } : {})
+      });
+    }
     console.error(err);
     res.status(500).json({ message: 'Error verifying payment' });
   }
@@ -1355,17 +1565,23 @@ app.delete('/api/admin/riders/:id', authenticate, async (req, res) => {
 app.get('/api/admin/dashboard/stats', authenticate, async (req, res) => {
   try {
     const totalOrders = await Order.countDocuments();
-    const totalProducts = await Product.countDocuments();
+    const products = await Product.find({}, { _id: 1, name: 1, stock: 1 });
+    const totalProducts = products.length;
     const totalRiders = await Rider.countDocuments();
     const pendingRiders = await Rider.countDocuments({ status: 'pending' });
     const totalRevenue = (await Order.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]))[0]?.total || 0;
+    const lowStockThreshold = parseLowStockThreshold(req.query.lowStockThreshold);
+    const lowStockAlerts = buildLowStockAlerts(products, lowStockThreshold);
     
     res.json({
       totalOrders,
       totalProducts,
       totalRiders,
       pendingRiders,
-      totalRevenue
+      totalRevenue,
+      lowStockThreshold,
+      lowStockCount: lowStockAlerts.length,
+      lowStockAlerts
     });
   } catch (err) {
     res.status(500).json({ message: 'Error fetching dashboard stats', error: err.message });

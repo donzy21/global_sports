@@ -972,6 +972,8 @@ let currentSearchQuery = '';
 let currentCategory    = '';
 let currentSortMode    = 'featured';
 let currentDeliveryQuote = null;
+let cartStockValidationTimer = null;
+let cartStockValidationSeq = 0;
 let chatSocket = null;
 let activeChat = null;
 let chatModalOpen = false;
@@ -1461,6 +1463,191 @@ selectedSize     = null;
 }
 
 // ===================== CART =====================
+function setCartStockWarning(message, tone) {
+const warningEl = document.getElementById('cartStockWarning');
+if (!warningEl) return;
+if (!message) {
+  warningEl.textContent = '';
+  warningEl.style.display = 'none';
+  warningEl.classList.remove('info');
+  return;
+}
+warningEl.textContent = message;
+warningEl.style.display = 'block';
+warningEl.classList.toggle('info', tone === 'info');
+}
+
+function setCartCheckoutEnabled(enabled, reason) {
+const btn = document.getElementById('cartCheckoutBtn');
+if (!btn) return;
+btn.disabled = !enabled;
+btn.title = enabled ? '' : (reason || 'Please resolve stock issues before checkout');
+}
+
+function buildShortageHint(shortages) {
+if (!Array.isArray(shortages) || !shortages.length) return '';
+return shortages
+  .slice(0, 2)
+  .map(s => `${s.name || 'Item'} (requested ${Number(s.requested || 0)}, available ${Number(s.available || 0)})`)
+  .join(', ');
+}
+
+function sanitizePlainMessage(value) {
+const raw = String(value || '').trim();
+if (!raw) return '';
+return raw
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/\s+/g, ' ')
+  .replace(/^Error\s*/i, '')
+  .trim();
+}
+
+function extractCartRequirements(cartItems) {
+const map = new Map();
+for (const entry of Array.isArray(cartItems) ? cartItems : []) {
+  const id = String(entry?._id || entry?.productId || entry?.id || '').trim();
+  if (!id) continue;
+  const qtyRaw = Number(entry?.quantity ?? entry?.qty ?? 1);
+  const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.floor(qtyRaw)) : 1;
+  const prev = map.get(id) || { productId: id, quantity: 0, name: entry?.name || 'Item' };
+  prev.quantity += qty;
+  if (!prev.name && entry?.name) prev.name = entry.name;
+  map.set(id, prev);
+}
+return Array.from(map.values());
+}
+
+function findShortagesFromProducts(cartItems, products) {
+const requirements = extractCartRequirements(cartItems);
+const byId = new Map((Array.isArray(products) ? products : []).map((p) => [String(p?._id || p?.id || ''), p]));
+const shortages = [];
+
+for (const req of requirements) {
+  const product = byId.get(String(req.productId));
+  if (!product) {
+    shortages.push({
+      productId: req.productId,
+      name: req.name || 'Item',
+      requested: req.quantity,
+      available: 0
+    });
+    continue;
+  }
+  const available = Number(product.stock || 0);
+  if (available < req.quantity) {
+    shortages.push({
+      productId: req.productId,
+      name: product.name || req.name || 'Item',
+      requested: req.quantity,
+      available
+    });
+  }
+}
+
+return shortages;
+}
+
+async function validateStockWithFallback(cartSnapshot) {
+const shortageMsgBase = 'This order is beyond available stock. Please reduce quantity and try again.';
+
+const tryFallback = async () => {
+  let products = Array.isArray(allProducts) ? allProducts : [];
+  if (!products.length) {
+    try {
+      products = await fetchProductsFromBase(API_URL);
+    } catch {
+      products = [];
+    }
+  }
+  if (!products.length) {
+    return { checked: false, ok: true, message: 'Live stock check is temporarily unavailable.' };
+  }
+  const shortages = findShortagesFromProducts(cartSnapshot, products);
+  if (shortages.length) {
+    const hint = buildShortageHint(shortages);
+    const message = hint ? `${shortageMsgBase} ${hint}` : shortageMsgBase;
+    return { checked: true, ok: false, message, shortages };
+  }
+  return { checked: true, ok: true, fallback: true };
+};
+
+try {
+  const res = await fetch(`${API_URL}/orders/validate-stock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cart: cartSnapshot })
+  });
+  const data = await parseJsonSafe(res);
+
+  if (res.ok) {
+    return { checked: true, ok: true };
+  }
+
+  const plainMsg = sanitizePlainMessage(data?.message || data);
+  const endpointMissing = res.status === 404 || /cannot\s+post\s+\/api\/orders\/validate-stock/i.test(plainMsg);
+  if (endpointMissing) {
+    return tryFallback();
+  }
+
+  const shortages = Array.isArray(data?.stock?.shortages) ? data.stock.shortages : [];
+  const hint = buildShortageHint(shortages);
+  const serverMsg = plainMsg || shortageMsgBase;
+  return {
+    checked: true,
+    ok: false,
+    message: hint ? `${serverMsg} ${hint}` : serverMsg,
+    shortages
+  };
+} catch {
+  return tryFallback();
+}
+}
+
+async function validateCartStockInline() {
+const seq = ++cartStockValidationSeq;
+
+if (!cart.length) {
+  setCartStockWarning('');
+  setCartCheckoutEnabled(false, 'Your cart is empty');
+  return { checked: false, ok: false };
+}
+
+try {
+  const cartSnapshot = [...cart];
+  const validation = await validateStockWithFallback(cartSnapshot);
+
+  if (seq !== cartStockValidationSeq) return { checked: false, ok: false };
+
+  if (validation.ok) {
+    setCartStockWarning('');
+    setCartCheckoutEnabled(true);
+    return { checked: true, ok: true, fallback: validation.fallback };
+  }
+
+  const fullMsg = validation.message || 'This order is beyond available stock. Please reduce quantity and try again.';
+  setCartStockWarning(fullMsg);
+  setCartCheckoutEnabled(false, fullMsg);
+  return { checked: true, ok: false, message: fullMsg };
+} catch {
+  if (seq !== cartStockValidationSeq) return { checked: false, ok: false };
+  setCartStockWarning('Could not validate stock right now. You can retry checkout.', 'info');
+  setCartCheckoutEnabled(true);
+  return { checked: false, ok: true };
+}
+}
+
+function scheduleCartStockValidation() {
+if (cartStockValidationTimer) clearTimeout(cartStockValidationTimer);
+if (!cart.length) {
+  setCartStockWarning('');
+  setCartCheckoutEnabled(false, 'Your cart is empty');
+  return;
+}
+cartStockValidationTimer = setTimeout(() => {
+  validateCartStockInline();
+}, 180);
+}
+
 function addToCart(productId, size) {
 const product = allProducts.find(p => p._id === productId);
 if (!product) return;
@@ -1481,6 +1668,8 @@ const itemsEl = document.getElementById('cartItems');
 if (!cart.length) {
 itemsEl.innerHTML = '<li class="cart-empty">Your cart is empty</li>';
 document.getElementById('cartTotal').textContent = '0.00';
+setCartStockWarning('');
+setCartCheckoutEnabled(false, 'Your cart is empty');
 return;
 }
 let total = 0;
@@ -1490,6 +1679,7 @@ const sizeLabel = item.selectedSize ? `<div class="cart-item-size">Size: ${escHt
 return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-item-name">${escHtml(item.name)}</div> ${sizeLabel} <div class="cart-item-price">GHS ${Number(item.price).toFixed(2)}</div> </div> <button class="cart-remove" onclick="removeFromCart(${idx})" title="Remove">✕</button> </li>`;
 }).join('');
 document.getElementById('cartTotal').textContent = total.toFixed(2);
+scheduleCartStockValidation();
 }
 
 function toggleCart() {
@@ -1502,8 +1692,13 @@ if (!isOpen) updateCartUI();
 }
 
 // ===================== CHECKOUT =====================
-function pay() {
+async function pay() {
 if (!cart.length) { showToast('Your cart is empty', 'error'); return; }
+const validation = await validateCartStockInline();
+if (validation.checked && !validation.ok) {
+  showToast(validation.message || 'This order is beyond available stock. Please reduce quantity and try again.', 'error');
+  return;
+}
 const subtotal = cart.reduce((a, b) => a + Number(b.price || 0), 0);
 document.getElementById('modalTotal').textContent = subtotal.toFixed(2);
 document.getElementById('checkoutError').textContent = '';
@@ -1686,6 +1881,20 @@ return;
 const quoteSnapshot = { ...currentDeliveryQuote };
 const deliveryFee = Number(quoteSnapshot.deliveryFee || 0);
 const cartSnapshot = [...cart];
+
+try {
+const validation = await validateStockWithFallback(cartSnapshot);
+if (!validation.ok) {
+  const fullMsg = validation.message || 'This order is beyond available stock. Please reduce quantity and try again.';
+  document.getElementById('checkoutError').textContent = fullMsg;
+  showToast(fullMsg, 'error');
+  return;
+}
+} catch (err) {
+document.getElementById('checkoutError').textContent = 'Could not confirm stock right now. Please try again.';
+showToast('Could not confirm stock right now. Please try again.', 'error');
+return;
+}
 
 const handler = PaystackPop.setup({
 key:      PAYSTACK_PUBLIC_KEY,
