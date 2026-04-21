@@ -1360,8 +1360,10 @@ const sizesPreview = hasSizes ? '<div class="product-sizes-preview">' + sizeDots
 return `
   <div class="product-card" data-id="${p._id}">
     ${stockBadge}
-    ${imgHtml}
-    <div class="product-card-img placeholder" ${placeholderStyle}>🏅</div>
+    <div class="product-card-media">
+      ${imgHtml}
+      <div class="product-card-img placeholder" ${placeholderStyle}>🏅</div>
+    </div>
     <div class="product-card-body">
       <span class="product-category">${escHtml(p.category || '')}</span>
       <div class="product-name">${escHtml(p.name)}</div>
