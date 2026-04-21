@@ -1476,6 +1476,7 @@ body.chat-modal-open {
     margin: 12px auto 40px;
     padding: 0 14px;
   }
+  .product-card-media { aspect-ratio: 4 / 5; }
   .product-card-body { padding: 12px; }
   .product-name { font-size: 15px; }
   .product-desc { font-size: 11px; min-height: 32px; }
