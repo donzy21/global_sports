@@ -18,7 +18,13 @@
 
 /* ===================== RESET ===================== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; padding-left: max(env(safe-area-inset-left, 0), 12px); padding-right: max(env(safe-area-inset-right, 0), 12px); }
+html {
+  scroll-behavior: smooth;
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
   font-family: var(--font-body);
   background: var(--bg);
