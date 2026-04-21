@@ -1730,7 +1730,7 @@ body.chat-modal-open {
 
 @media (max-width: 320px) {
   .products-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: 8px;
     padding: 0 10px;
     margin: 8px auto 32px;
