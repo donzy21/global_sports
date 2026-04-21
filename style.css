@@ -1479,7 +1479,7 @@ body.chat-modal-open {
   .product-card-media { aspect-ratio: 4 / 5; }
   .product-card-body { padding: 12px; }
   .product-name { font-size: 15px; }
-  .product-desc { font-size: 11px; min-height: 32px; }
+  .product-desc { display: block; font-size: 12px; min-height: 30px; }
   .product-price { font-size: 20px; }
   .product-footer { padding: 10px 12px; }
   .add-to-cart-btn { padding: 9px 12px; font-size: 11px; }
@@ -1671,6 +1671,12 @@ body.chat-modal-open {
     font-size: 14px;
   }
 
+  .product-desc {
+    display: block;
+    font-size: 12px;
+    min-height: 30px;
+  }
+
   .product-price {
     font-size: 18px;
   }
@@ -1703,6 +1709,7 @@ body.chat-modal-open {
   }
 
   .product-desc {
+    display: block;
     font-size: 11px;
     min-height: 28px;
   }
@@ -1752,7 +1759,9 @@ body.chat-modal-open {
   }
 
   .product-desc {
-    display: none;
+    display: block;
+    font-size: 10px;
+    min-height: 0;
   }
 
   .product-price {
