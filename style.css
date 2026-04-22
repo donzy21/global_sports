@@ -1752,7 +1752,8 @@ body.chat-modal-open {
   }
 
   .product-desc {
-    display: none;
+    font-size: 11px;
+    min-height: 0;
   }
 
   .product-price {
