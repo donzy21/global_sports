@@ -160,6 +160,12 @@ const CHAT_RETENTION_DAYS = Math.max(1, Number(process.env.CHAT_RETENTION_DAYS |
 const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
 const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
 const LOW_STOCK_THRESHOLD = Math.max(0, Number(process.env.LOW_STOCK_THRESHOLD || 5));
+const DEFAULT_CAMPAIGN_MESSAGES = [
+  'Global Sports campaign: weekly deals across football, gym, and running',
+  'Free same-day Kumasi delivery on qualifying baskets',
+  'Fresh arrivals landing every week at promo-ready prices'
+];
+const CAMPAIGN_SETTING_KEY = 'homepage_ticker';
 
 // ================= DATABASE CONNECTION =================
 mongoose.connect(MONGO_URI)
@@ -247,6 +253,43 @@ const Admin = mongoose.model('Admin', new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true }
 }));
+
+const CampaignSetting = mongoose.model('CampaignSetting', new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  messages: { type: [String], default: [] },
+  updatedBy: { type: String, default: 'system' },
+  updatedAt: { type: Date, default: Date.now }
+}));
+
+function normalizeCampaignMessagesInput(messages) {
+  if (!Array.isArray(messages)) return [];
+  const normalized = messages
+    .map((message) => String(message || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((message) => message.slice(0, 140));
+  return [...new Set(normalized)];
+}
+
+async function getCampaignMessages() {
+  const setting = await CampaignSetting.findOne({ key: CAMPAIGN_SETTING_KEY }).lean();
+  const fromDb = normalizeCampaignMessagesInput(setting?.messages || []);
+  if (fromDb.length) {
+    return {
+      messages: fromDb,
+      source: 'admin',
+      updatedAt: setting?.updatedAt || null,
+      updatedBy: setting?.updatedBy || null
+    };
+  }
+
+  return {
+    messages: DEFAULT_CAMPAIGN_MESSAGES,
+    source: 'default',
+    updatedAt: null,
+    updatedBy: null
+  };
+}
 
 const Rider = mongoose.model('Rider', new mongoose.Schema({
   fullName:        { type: String, required: true },
@@ -800,6 +843,99 @@ app.post('/api/admin/login', async (req, res) => {
   if (!valid) return res.status(400).json({ message: 'Invalid credentials' });
   const token = jwt.sign({ id: admin._id, username: admin.username }, JWT_SECRET, { expiresIn: '1d' });
   res.json({ message: 'Login successful', token });
+});
+
+app.get('/api/campaign/messages', async (req, res) => {
+  try {
+    const payload = await getCampaignMessages();
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load campaign messages', error: err.message });
+  }
+});
+
+app.get('/api/admin/campaign/messages', authenticate, async (req, res) => {
+  try {
+    const payload = await getCampaignMessages();
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load campaign settings', error: err.message });
+  }
+});
+
+app.get('/api/admin/campaigns/messages', authenticate, async (req, res) => {
+  try {
+    const payload = await getCampaignMessages();
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load campaign settings', error: err.message });
+  }
+});
+
+app.put('/api/admin/campaign/messages', authenticate, async (req, res) => {
+  try {
+    const messages = normalizeCampaignMessagesInput(req.body?.messages || []);
+    if (messages.length < 1) {
+      return res.status(400).json({ message: 'Provide at least one campaign message.' });
+    }
+
+    const updatedBy = String(req.admin?.username || req.admin?.id || 'admin');
+    const setting = await CampaignSetting.findOneAndUpdate(
+      { key: CAMPAIGN_SETTING_KEY },
+      {
+        $set: {
+          key: CAMPAIGN_SETTING_KEY,
+          messages,
+          updatedBy,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      message: 'Campaign messages updated',
+      messages: setting.messages,
+      source: 'admin',
+      updatedAt: setting.updatedAt,
+      updatedBy: setting.updatedBy
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update campaign settings', error: err.message });
+  }
+});
+
+app.put('/api/admin/campaigns/messages', authenticate, async (req, res) => {
+  try {
+    const messages = normalizeCampaignMessagesInput(req.body?.messages || []);
+    if (messages.length < 1) {
+      return res.status(400).json({ message: 'Provide at least one campaign message.' });
+    }
+
+    const updatedBy = String(req.admin?.username || req.admin?.id || 'admin');
+    const setting = await CampaignSetting.findOneAndUpdate(
+      { key: CAMPAIGN_SETTING_KEY },
+      {
+        $set: {
+          key: CAMPAIGN_SETTING_KEY,
+          messages,
+          updatedBy,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      message: 'Campaign messages updated',
+      messages: setting.messages,
+      source: 'admin',
+      updatedAt: setting.updatedAt,
+      updatedBy: setting.updatedBy
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update campaign settings', error: err.message });
+  }
 });
 
 // ================= PRODUCT ROUTES =================
