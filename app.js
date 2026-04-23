@@ -48,26 +48,6 @@ return 'https://global-sports-backend.onrender.com/api';
 })();
 const PAYSTACK_PUBLIC_KEY = String(APP_CONFIG.paystackPublicKey || 'pk_live_b53aa461435f588847cc2ed6ebbfd95b09a7b312').trim();
 
-const CAMPAIGN_WINDOWS = [
-{ start: '01-01', end: '01-15', messages: ['New Year kickoff: up to 15% off selected performance kits', 'Fresh season drop: latest training sets now available', 'Spend GHS 280+ and get free Kumasi same-day delivery'] },
-{ start: '02-01', end: '02-14', messages: ['Doubles deal: buy 2 sports tees and save 10%', 'Fitness month promo: selected gym gear reduced this week', 'Boot care bundle offer now live for all football boots'] },
-{ start: '03-01', end: '04-15', messages: ['Season opener: new boots collection now in stock', 'Teamwear campaign: discounts on selected jersey packs', 'Free Kumasi delivery above GHS 300 for campaign orders'] },
-{ start: '06-01', end: '08-31', messages: ['Mid-year campaign: 20% off selected running essentials', 'Summer sports special on lightweight training wear', 'Accessories spotlight: performance socks and grips on promo'] },
-{ start: '09-01', end: '10-31', messages: ['Back-to-training campaign: save on kits and tracksuits', 'School sports season deals now running this month', 'Combo offer: jersey + shorts bundle at campaign price'] },
-{ start: '11-20', end: '12-05', messages: ['Black Friday campaign: limited flash deals daily', 'Mega markdowns on selected premium football boots', 'Free express delivery for qualifying campaign baskets'] },
-{ start: '12-10', end: '12-31', messages: ['Holiday campaign: gift-ready sportswear specials', 'Year-end clearance on selected apparel and accessories', 'Last-mile festive delivery window now open'] }
-];
-const DEFAULT_CAMPAIGN_MESSAGES = [
-'Global Sports campaign: weekly deals across football, gym, and running',
-'Free same-day Kumasi delivery on qualifying baskets',
-'Fresh arrivals landing every week at promo-ready prices'
-];
-
-let campaignTickerDateKey = '';
-let remoteCampaignMessages = [];
-let campaignMessagesSource = 'default';
-let campaignTickerRefreshTimer = null;
-
 function getApiCandidates() {
 const storedApi = safeStorageGet('gs_api_url') || null;
 const host = String(window.location.hostname || '').toLowerCase();
@@ -166,89 +146,6 @@ safeStorageRemove('gs_api_url');
 
 function getSocketBase() {
 return API_URL.replace(/\/api\/?$/, '');
-}
-
-function normalizeCampaignMessages(messages) {
-if (!Array.isArray(messages)) return [];
-const normalized = messages
-  .map((msg) => String(msg || '').trim())
-  .filter(Boolean)
-  .slice(0, 8);
-return [...new Set(normalized)];
-}
-
-async function loadRemoteCampaignMessages() {
-try {
-  const res = await fetch(`${API_URL}/campaign/messages`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Campaign fetch failed (${res.status})`);
-  const data = await parseJsonSafe(res);
-  remoteCampaignMessages = normalizeCampaignMessages(data?.messages);
-  campaignMessagesSource = remoteCampaignMessages.length ? 'remote' : 'default';
-} catch (err) {
-  campaignMessagesSource = remoteCampaignMessages.length ? 'remote' : 'default';
-  console.warn('Campaign message fetch skipped:', err.message);
-}
-}
-
-function isMonthDayInRange(monthDay, startMonthDay, endMonthDay) {
-if (!monthDay || !startMonthDay || !endMonthDay) return false;
-if (startMonthDay <= endMonthDay) {
-  return monthDay >= startMonthDay && monthDay <= endMonthDay;
-}
-return monthDay >= startMonthDay || monthDay <= endMonthDay;
-}
-
-function getCampaignMessagesForDate(now = new Date()) {
-const fromConfig = Array.isArray(APP_CONFIG.campaignMessages)
-  ? APP_CONFIG.campaignMessages.map((msg) => String(msg || '').trim()).filter(Boolean)
-  : [];
-if (fromConfig.length) return fromConfig;
-
-if (remoteCampaignMessages.length) return remoteCampaignMessages;
-
-const monthDay = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-const matchedWindow = CAMPAIGN_WINDOWS.find((window) => isMonthDayInRange(monthDay, window.start, window.end));
-let messages = matchedWindow?.messages?.slice() || DEFAULT_CAMPAIGN_MESSAGES.slice();
-
-const isWeekend = now.getDay() === 5 || now.getDay() === 6 || now.getDay() === 0;
-if (isWeekend) {
-  messages.unshift('Weekend campaign: up to 20% off selected kits');
-}
-
-const normalized = messages.map((msg) => String(msg || '').trim()).filter(Boolean);
-return normalized.length ? normalized.slice(0, 5) : DEFAULT_CAMPAIGN_MESSAGES.slice();
-}
-
-function renderCampaignTicker(now = new Date()) {
-const track = document.querySelector('.campaign-strip-track');
-if (!track) return;
-
-const messages = getCampaignMessagesForDate(now);
-if (!messages.length) return;
-
-const duplicated = [...messages, ...messages];
-track.innerHTML = duplicated.map((msg) => `<span>${escHtml(msg)}</span>`).join('');
-campaignTickerDateKey = now.toISOString().slice(0, 10);
-}
-
-async function initCampaignTicker() {
-renderCampaignTicker(new Date());
-await loadRemoteCampaignMessages();
-renderCampaignTicker(new Date());
-
-if (campaignTickerRefreshTimer) {
-  clearInterval(campaignTickerRefreshTimer);
-}
-
-campaignTickerRefreshTimer = setInterval(async () => {
-  const now = new Date();
-  const todayKey = now.toISOString().slice(0, 10);
-  // Re-check source from backend periodically so admin updates appear without redeploy.
-  await loadRemoteCampaignMessages();
-  if (todayKey !== campaignTickerDateKey || campaignMessagesSource === 'remote') {
-    renderCampaignTicker(now);
-  }
-}, 5 * 60 * 1000);
 }
 
 function formatMoney(value) {
@@ -1117,7 +1014,6 @@ document.getElementById('loader').classList.add('hidden');
 }, 1300);
 
 await discoverApiUrl();
-await initCampaignTicker();
 console.log('✅ API URL detected:', API_URL);
 console.log('🔌 Socket.IO base:', getSocketBase());
 console.log('📦 Socket.IO library available:', typeof io !== 'undefined' ? '✅' : '❌');
