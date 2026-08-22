@@ -212,6 +212,48 @@ nav { display: flex; align-items: center; gap: 8px; }
   margin-bottom: 16px;
 }
 .hero-sub { color: var(--text-muted); font-size: 15px; font-weight: 300; }
+.promotion-strip {
+  max-width: 1280px;
+  margin: 14px auto 0;
+  padding: 12px 24px;
+}
+.promotion-strip:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(181, 241, 59, 0.28);
+  border-radius: var(--radius);
+  background: linear-gradient(100deg, rgba(181, 241, 59, 0.12), rgba(181, 241, 59, 0.03));
+}
+.promotion-strip-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.promotion-strip-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.promotion-strip strong { font-size: 15px; }
+.promotion-strip-copy > span:last-child { color: var(--text-muted); font-size: 12px; }
+.promotion-strip button {
+  flex: 0 0 auto;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  padding: 8px 13px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.promotion-strip button:hover { background: var(--accent); color: var(--bg); }
 
 /* ===================== FILTER BAR ===================== */
 .filter-bar {
@@ -219,25 +261,38 @@ nav { display: flex; align-items: center; gap: 8px; }
   margin: 28px auto 0;
   padding: 0 24px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .filter-chip {
-  background: var(--surface);
+  min-height: 42px;
+  background: rgba(255,255,255,0.025);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  padding: 7px 16px;
+  padding: 9px 18px;
   border-radius: 99px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  transition: var(--transition);
+  letter-spacing: 0.2px;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
-.filter-chip:hover { color: var(--text); border-color: #444; }
+.filter-chip:hover {
+  color: var(--text);
+  border-color: #555;
+  background: rgba(255,255,255,0.07);
+  transform: translateY(-1px);
+}
+.filter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 .filter-chip.active {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg);
+  box-shadow: 0 6px 18px rgba(181, 241, 59, 0.18);
+  font-weight: 700;
 }
 
 .discover-toolbar {
@@ -1492,20 +1547,27 @@ body.chat-modal-open {
   }
   .form-row { grid-template-columns: 1fr; }
   .shop-hero { padding: 34px 16px 30px; }
+  .promotion-strip { margin: 10px 14px 0; padding: 12px; }
+  .promotion-strip:not([hidden]) { align-items: flex-start; flex-direction: column; }
+  .promotion-strip button { width: 100%; }
   .hero-eyebrow { font-size: 10px; letter-spacing: 2px; }
   .hero-title { font-size: clamp(40px, 16vw, 58px); margin-bottom: 10px; }
   .hero-sub { font-size: 13px; line-height: 1.5; }
   .filter-bar {
     margin: 16px auto 0;
     padding: 0 16px;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: nowrap;
     overflow-x: auto;
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
   .filter-bar::-webkit-scrollbar { display: none; }
-  .filter-chip { flex: 0 0 auto; }
+  .filter-chip {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 8px 15px;
+  }
   .discover-toolbar { top: 64px; }
   .search-sort-row { grid-template-columns: 1fr; }
   .search-sort-row { margin-top: 10px; padding: 0 16px; gap: 10px; }

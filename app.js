@@ -1500,6 +1500,7 @@ try {
     } catch (e) {
       allPromotions = [];
     }
+    renderPromotionStrip();
     applyPromotionsToProducts();
     applyProductView();
 } catch (err) {
@@ -1518,6 +1519,31 @@ async function fetchPromotions() {
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data.promotions) ? data.promotions : [];
+}
+
+function renderPromotionStrip() {
+  const strip = document.getElementById('promotionStrip');
+  if (!strip) return;
+
+  const now = new Date();
+  const activePromotions = (allPromotions || [])
+    .filter((promotion) => {
+      const startsAt = new Date(promotion.startsAt || promotion.createdAt || now);
+      const endsAt = new Date(promotion.endsAt || now);
+      return promotion.active && startsAt <= now && endsAt >= now;
+    })
+    .sort((a, b) => Boolean(b.pinned) - Boolean(a.pinned));
+
+  const promotion = activePromotions[0];
+  if (!promotion) {
+    strip.hidden = true;
+    strip.innerHTML = '';
+    return;
+  }
+
+  const description = promotion.description || 'Save on selected sportswear while this offer lasts.';
+  strip.innerHTML = `<div class="promotion-strip-copy"><span class="promotion-strip-kicker">Limited offer</span><strong>${escHtml(promotion.title || 'Special offer')}</strong><span>${escHtml(description)}</span></div><button type="button" onclick="document.getElementById('productsGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })">Shop offer</button>`;
+  strip.hidden = false;
 }
 
 function applyPromotionsToProducts() {
