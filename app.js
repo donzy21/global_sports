@@ -957,6 +957,7 @@ try {
 
 // ===================== STATE =====================
 let allProducts    = [];
+let allPromotions  = [];
 let cart           = [];
 let riderToken     = localStorage.getItem('gs_rider_token') || null;
 let riderInfo      = JSON.parse(localStorage.getItem('gs_rider_info') || 'null');
@@ -1327,6 +1328,160 @@ document.getElementById('navRiderDash').style.display  = show ? '' : 'none';
 document.getElementById('navRiderLogin').style.display = show ? 'none' : '';
 }
 
+function openPromotionAdmin() {
+  const overlay = document.getElementById('promotionAdminOverlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  if (adminToken) {
+    document.getElementById('promotionAdminLoginPanel').style.display = 'none';
+    document.getElementById('promotionAdminDashboard').style.display = 'block';
+    loadAdminPromotions();
+  } else {
+    document.getElementById('promotionAdminLoginPanel').style.display = 'block';
+    document.getElementById('promotionAdminDashboard').style.display = 'none';
+  }
+}
+
+function closePromotionAdmin() {
+  const overlay = document.getElementById('promotionAdminOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+async function handleAdminLogin() {
+  const username = document.getElementById('adminUsername').value.trim();
+  const password = document.getElementById('adminPassword').value;
+  if (!username || !password) {
+    showToast('Enter admin username and password', 'error');
+    return;
+  }
+  try {
+    const res = await fetch(`${API_URL}/admin/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data?.message || 'Admin login failed');
+    adminToken = data.token;
+    safeStorageSet('gs_admin_token', adminToken);
+    document.getElementById('promotionAdminLoginPanel').style.display = 'none';
+    document.getElementById('promotionAdminDashboard').style.display = 'block';
+    showToast('Admin login successful', 'success');
+    await loadAdminPromotions();
+  } catch (err) {
+    showToast(err.message || 'Admin login failed', 'error');
+  }
+}
+
+function logoutAdmin() {
+  adminToken = null;
+  safeStorageRemove('gs_admin_token');
+  document.getElementById('promotionAdminLoginPanel').style.display = 'block';
+  document.getElementById('promotionAdminDashboard').style.display = 'none';
+  document.getElementById('adminUsername').value = '';
+  document.getElementById('adminPassword').value = '';
+  document.getElementById('adminPromotionsList').innerHTML = '';
+}
+
+async function loadAdminPromotions() {
+  if (!adminToken) return;
+  try {
+    const res = await fetch(`${API_URL}/admin/promotions`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data?.message || 'Could not load promotions');
+    allPromotions = Array.isArray(data.promotions) ? data.promotions : [];
+    renderAdminPromotions();
+  } catch (err) {
+    showToast(err.message || 'Could not load promotions', 'error');
+  }
+}
+
+function renderAdminPromotions() {
+  const list = document.getElementById('adminPromotionsList');
+  if (!list) return;
+  if (!allPromotions.length) {
+    list.innerHTML = '<div class="empty-state"><p>No promotions yet.</p></div>';
+    return;
+  }
+  list.innerHTML = allPromotions.map(p => `
+    <div class="product-card" style="padding:16px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+          <div class="product-name" style="font-size:1.1rem; margin-bottom:4px;">${escHtml(p.title || 'Promotion')}</div>
+          <div class="product-desc">${escHtml(p.description || 'No description')}</div>
+        </div>
+        <button class="cancel-btn" onclick="deletePromotionById('${p._id}')">Delete</button>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+        <span class="badge">${p.discountPercent ? `${Number(p.discountPercent).toFixed(0)}% off` : `GHS ${Number(p.discountPrice || 0).toFixed(2)}`}</span>
+        <span class="badge">${p.active ? 'Active' : 'Inactive'}</span>
+        <span class="badge">${p.pinned ? 'Pinned' : 'Standard'}</span>
+      </div>
+      <div class="product-desc" style="margin-top:10px;">Starts: ${new Date(p.startsAt || Date.now()).toLocaleString()}<br>Ends: ${new Date(p.endsAt || Date.now()).toLocaleString()}</div>
+    </div>
+  `).join('');
+}
+
+async function createPromotionFromForm(event) {
+  event.preventDefault();
+  try {
+    const title = document.getElementById('promoTitle').value.trim();
+    if (!title) {
+      showToast('Promotion title is required', 'error');
+      return;
+    }
+    const productIds = (document.getElementById('promoProductIds').value || '')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+    const payload = {
+      title,
+      description: document.getElementById('promoDescription').value.trim(),
+      productIds,
+      discountPercent: Number(document.getElementById('promoDiscountPercent').value || 0),
+      discountPrice: Number(document.getElementById('promoDiscountPrice').value || 0),
+      startsAt: document.getElementById('promoStartsAt').value ? new Date(document.getElementById('promoStartsAt').value).toISOString() : new Date().toISOString(),
+      endsAt: document.getElementById('promoEndsAt').value ? new Date(document.getElementById('promoEndsAt').value).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      pinned: document.getElementById('promoPinned').checked,
+      active: document.getElementById('promoActive').checked
+    };
+
+    const res = await fetch(`${API_URL}/admin/promotions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify(payload)
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data?.message || 'Promotion create failed');
+    document.getElementById('promotionForm').reset();
+    document.getElementById('promoActive').checked = true;
+    showToast('Promotion created', 'success');
+    await loadAdminPromotions();
+    await fetchProducts();
+  } catch (err) {
+    showToast(err.message || 'Could not create promotion', 'error');
+  }
+}
+
+async function deletePromotionById(id) {
+  if (!id || !adminToken) return;
+  try {
+    const res = await fetch(`${API_URL}/admin/promotions/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data?.message || 'Delete failed');
+    showToast('Promotion deleted', 'success');
+    await loadAdminPromotions();
+    await fetchProducts();
+  } catch (err) {
+    showToast(err.message || 'Delete failed', 'error');
+  }
+}
+
 // ===================== AUTH TABS (rider login/register) =====================
 function switchAuthTab(formId, btn) {
 document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -1338,8 +1493,15 @@ document.getElementById('riderRegisterForm').style.display = formId === 'riderRe
 // ===================== PRODUCTS =====================
 async function fetchProducts() {
 try {
-allProducts = await fetchProductsFromBase(API_URL);
-applyProductView();
+    allProducts = await fetchProductsFromBase(API_URL);
+    // Fetch active promotions and apply to products
+    try {
+      allPromotions = await fetchPromotions();
+    } catch (e) {
+      allPromotions = [];
+    }
+    applyPromotionsToProducts();
+    applyProductView();
 } catch (err) {
 console.error('Error fetching products:', err);
 try {
@@ -1349,6 +1511,41 @@ try {
   return;
 } catch (retryErr) {
   console.error('Retry fetching products failed:', retryErr);
+}
+
+async function fetchPromotions() {
+  const res = await fetch(`${API_URL}/promotions`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data.promotions) ? data.promotions : [];
+}
+
+function applyPromotionsToProducts() {
+  const now = new Date();
+  if (!Array.isArray(allProducts)) return;
+  for (const p of allProducts) {
+    // Clear previous promo fields
+    delete p.discountedPrice;
+    delete p.promotionBadge;
+
+    const promos = (allPromotions || []).filter(pr => pr.active && pr.productIds && pr.productIds.includes(p._id));
+    if (!promos.length) continue;
+    // pick the best promo (largest discountPercent or lowest discountPrice)
+    promos.sort((a, b) => (b.discountPercent || 0) - (a.discountPercent || 0));
+    const promo = promos[0];
+    // ensure promo is in date range
+    const starts = new Date(promo.startsAt || promo.createdAt || now);
+    const ends = new Date(promo.endsAt || now);
+    if (starts > now || ends < now) continue;
+    // determine discounted price
+    let discounted = 0;
+    if (promo.discountPrice && Number(promo.discountPrice) > 0) discounted = Number(promo.discountPrice);
+    else if (promo.discountPercent && Number(promo.discountPercent) > 0) discounted = Number(p.price) * (1 - Number(promo.discountPercent) / 100);
+    if (discounted && discounted < Number(p.price)) {
+      p.discountedPrice = Number(discounted.toFixed(2));
+    }
+    p.promotionBadge = promo.title || 'Sale';
+  }
 }
 
 document.getElementById('productsGrid').innerHTML =
@@ -1438,7 +1635,8 @@ return `
       ${sizesPreview}
     </div>
     <div class="product-footer">
-      <div class="product-price"><span>GHS</span> ${Number(p.price).toFixed(2)}</div>
+      <div class="product-price">${p.discountedPrice ? `<span class="product-price-saved">GHS ${Number(p.price).toFixed(2)}</span> <span class="product-price-now">GHS ${Number(p.discountedPrice).toFixed(2)}</span>` : `<span>GHS</span> ${Number(p.price).toFixed(2)}`}</div>
+      ${p.promotionBadge ? `<div class="promo-badge">${escHtml(p.promotionBadge)}</div>` : ''}
       <button class="add-to-cart-btn" data-product-id="${p._id}" ${disabledAttr}>
         ${hasSizes ? 'Select Size' : '+ Cart'}
       </button>

@@ -1315,6 +1315,45 @@ body.chat-modal-open {
 .footer-notes strong {
   color: var(--text);
 }
+.social-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: 4px;
+}
+.social-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.social-links a:hover {
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+.social-links svg {
+  display: none;
+}
+.social-links a::before {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  font-family: "Font Awesome 6 Brands";
+  font-weight: 400;
+}
+.social-links a[href*="tiktok"]::before {
+  content: "\e07b";
+}
+.social-links a[href*="instagram"]::before {
+  content: "\f16d";
+}
+.social-links a[href*="wa.me"]::before {
+  content: "\f232";
+}
 
 /* ===================== POLICY PAGES ===================== */
 .page-shell {

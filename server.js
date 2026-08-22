@@ -235,6 +235,86 @@ const ChatMessage = mongoose.model('ChatMessage', new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, expires: CHAT_RETENTION_SECONDS }
 }));
 
+// ================= PROMOTION MODEL =================
+const Promotion = mongoose.model('Promotion', new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, default: '' },
+  productIds: { type: [String], default: [] },
+  discountPercent: { type: Number, default: 0 },
+  discountPrice: { type: Number, default: 0 },
+  startsAt: { type: Date, default: Date.now },
+  endsAt: { type: Date, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+  pinned: { type: Boolean, default: false },
+  active: { type: Boolean, default: true },
+  bannerImage: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now }
+}));
+
+// Public: list active promotions (within date range and active=true)
+app.get('/api/promotions', async (req, res) => {
+  try {
+    const now = new Date();
+    const promos = await Promotion.find({ active: true, startsAt: { $lte: now }, endsAt: { $gte: now } }).sort({ pinned: -1, startsAt: -1 });
+    res.json({ promotions: promos });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not list promotions', error: err.message });
+  }
+});
+
+// Admin: CRUD promotions
+app.get('/api/admin/promotions', authenticate, async (req, res) => {
+  try {
+    const promos = await Promotion.find().sort({ startsAt: -1 });
+    res.json({ promotions: promos });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not list promotions', error: err.message });
+  }
+});
+
+app.post('/api/admin/promotions', authenticate, async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const promo = new Promotion({
+      title: String(payload.title || '').trim() || 'Promotion',
+      description: String(payload.description || ''),
+      productIds: Array.isArray(payload.productIds) ? payload.productIds : [],
+      discountPercent: Number(payload.discountPercent || 0),
+      discountPrice: payload.discountPrice ? Number(payload.discountPrice) : 0,
+      startsAt: payload.startsAt ? new Date(payload.startsAt) : new Date(),
+      endsAt: payload.endsAt ? new Date(payload.endsAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      pinned: !!payload.pinned,
+      active: payload.active === undefined ? true : !!payload.active,
+      bannerImage: String(payload.bannerImage || '')
+    });
+    await promo.save();
+    res.json({ promotion: promo });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not create promotion', error: err.message });
+  }
+});
+
+app.put('/api/admin/promotions/:id', authenticate, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const payload = req.body || {};
+    const updated = await Promotion.findByIdAndUpdate(id, { $set: payload }, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Promotion not found' });
+    res.json({ promotion: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update promotion', error: err.message });
+  }
+});
+
+app.delete('/api/admin/promotions/:id', authenticate, async (req, res) => {
+  try {
+    const id = req.params.id;
+    await Promotion.findByIdAndDelete(id);
+    res.json({ message: 'Promotion deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not delete promotion', error: err.message });
+  }
+});
+
 // ================= USER MODEL =================
 const User = mongoose.model('User', new mongoose.Schema({
   name: { type: String, required: true },
