@@ -1003,6 +1003,71 @@ lng: -1.6398,
 address: 'Global Sports Store, Kumasi-Tanoso (near AAMUSTED)'
 };
 
+// ===================== AUTH & CART SYNC HELPERS =====================
+function getUserToken() {
+  return safeStorageGet('gs_user_token');
+}
+
+function setUserToken(token) {
+  if (token) safeStorageSet('gs_user_token', token);
+  else safeStorageRemove('gs_user_token');
+}
+
+function getUserInfo() {
+  try { return JSON.parse(safeStorageGet('gs_user_info') || 'null'); } catch { return null; }
+}
+
+function setUserInfo(info) {
+  if (info) safeStorageSet('gs_user_info', JSON.stringify(info));
+  else safeStorageRemove('gs_user_info');
+}
+
+async function loginUser(email, password) {
+  const res = await fetch(`${API_URL}/users/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) throw new Error(data?.message || 'Login failed');
+  setUserToken(data.token);
+  setUserInfo(data.user || null);
+  await loadCartFromServer();
+  return data;
+}
+
+async function registerUser(name, email, password) {
+  const res = await fetch(`${API_URL}/users/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, email, password }) });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) throw new Error(data?.message || 'Registration failed');
+  setUserToken(data.token);
+  setUserInfo(data.user || null);
+  await loadCartFromServer();
+  return data;
+}
+
+async function syncCartToServer() {
+  try {
+    const token = getUserToken();
+    if (!token) return;
+    await fetch(`${API_URL}/cart`, { method: 'POST', headers: { 'content-type': 'application/json', 'authorization': `Bearer ${token}` }, body: JSON.stringify({ cart }) });
+  } catch (err) {
+    console.warn('Cart sync failed:', err.message || err);
+  }
+}
+
+async function loadCartFromServer() {
+  try {
+    const token = getUserToken();
+    if (!token) return;
+    const res = await fetch(`${API_URL}/cart`, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.cart)) {
+      cart = data.cart;
+      updateCartUI();
+    }
+  } catch (err) {
+    console.warn('Load cart failed:', err.message || err);
+  }
+}
+
 // ===================== INIT =====================
 window.addEventListener('DOMContentLoaded', async () => {
 console.log('🚀 Global Sports app initializing...');
@@ -1019,6 +1084,8 @@ console.log('🔌 Socket.IO base:', getSocketBase());
 console.log('📦 Socket.IO library available:', typeof io !== 'undefined' ? '✅' : '❌');
 
 fetchProducts();
+// If user is logged in, load persisted cart from server
+await loadCartFromServer();
 
 const addressInput = document.getElementById('custAddress');
 if (addressInput) {
@@ -1682,6 +1749,8 @@ return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-it
 }).join('');
 document.getElementById('cartTotal').textContent = total.toFixed(2);
 scheduleCartStockValidation();
+  // Persist cart to server when user is logged in
+  try { syncCartToServer(); } catch { /* no-op */ }
 }
 
 function toggleCart() {

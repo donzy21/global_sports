@@ -162,9 +162,25 @@ const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT
 const LOW_STOCK_THRESHOLD = Math.max(0, Number(process.env.LOW_STOCK_THRESHOLD || 5));
 
 // ================= DATABASE CONNECTION =================
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+async function connectDatabase() {
+  if (!MONGO_URI) {
+    console.warn('MONGO_URI not set — skipping automatic DB connect (useful for local tests)');
+    return;
+  }
+
+  if (process.env.DISABLE_DB_CONNECT === 'true') {
+    console.warn('DISABLE_DB_CONNECT=true — skipping DB connection (test mode)');
+    return;
+  }
+
+  try {
+    await mongoose.connect(MONGO_URI);
+    console.log('MongoDB Connected');
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    // Don't throw here to keep the app importable for tests — allow callers to decide
+  }
+}
 
 // ================= MODELS =================
 const Product = mongoose.model('Product', new mongoose.Schema({
@@ -218,6 +234,130 @@ const ChatMessage = mongoose.model('ChatMessage', new mongoose.Schema({
   // TTL index keeps chat history bounded on free-tier MongoDB.
   createdAt: { type: Date, default: Date.now, expires: CHAT_RETENTION_SECONDS }
 }));
+
+// ================= USER MODEL =================
+const User = mongoose.model('User', new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true, index: true },
+  passwordHash: { type: String, required: true },
+  cart: { type: Array, default: [] },
+  createdAt: { type: Date, default: Date.now }
+}));
+
+// ================= USER AUTH HELPERS =================
+const authenticateUser = async (req, res, next) => {
+  const authHeader = req.headers['authorization'] || '';
+  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(payload.id).select('-passwordHash');
+    if (!user) return res.status(401).json({ message: 'User not found' });
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid or expired token' });
+  }
+};
+
+function makeUserToken(user) {
+  return jwt.sign({ id: String(user._id), email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+// ================= USER ROUTES =================
+app.post('/api/users/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ message: 'Missing fields' });
+    // Basic validation
+    if (typeof name !== 'string' || name.length < 2) return res.status(400).json({ message: 'Name too short' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return res.status(400).json({ message: 'Invalid email' });
+    if (String(password).length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) return res.status(409).json({ message: 'Email already registered' });
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    const user = new User({ name: String(name), email: String(email).toLowerCase(), passwordHash });
+    await user.save();
+    const token = makeUserToken(user);
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+  } catch (err) {
+    res.status(500).json({ message: 'Registration failed', error: err.message });
+  }
+});
+
+app.post('/api/users/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ message: 'Missing fields' });
+    const user = await User.findOne({ email: String(email).toLowerCase() });
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    const ok = await bcrypt.compare(String(password), user.passwordHash);
+    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
+    const token = makeUserToken(user);
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+  } catch (err) {
+    res.status(500).json({ message: 'Login failed', error: err.message });
+  }
+});
+
+// Persist shopping cart on user document
+app.get('/api/cart', authenticateUser, async (req, res) => {
+  res.json({ cart: req.user.cart || [] });
+});
+
+app.post('/api/cart', authenticateUser, async (req, res) => {
+  try {
+    const cart = Array.isArray(req.body.cart) ? req.body.cart : [];
+    req.user.cart = cart;
+    await req.user.save();
+    res.json({ cart: req.user.cart });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to save cart', error: err.message });
+  }
+});
+
+// Create order from user's cart
+app.post('/api/orders', authenticateUser, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body.items) ? req.body.items : req.user.cart || [];
+    if (!items.length) return res.status(400).json({ message: 'Cart is empty' });
+
+    const subtotal = items.reduce((s, i) => s + Number(i.price || 0), 0);
+    const order = new Order({
+      reference: `ORD_${Date.now()}`,
+      subtotal,
+      amount: Number(req.body.amount || subtotal),
+      items,
+      customer: {
+        name: req.user.name,
+        email: req.user.email,
+        phone: req.body.phone || '',
+        address: req.body.address || '',
+        userId: req.user._id
+      },
+      status: 'pending'
+    });
+    await order.save();
+
+    // Clear user's cart
+    req.user.cart = [];
+    await req.user.save();
+
+    res.json({ order });
+  } catch (err) {
+    res.status(500).json({ message: 'Order creation failed', error: err.message });
+  }
+});
+
+// User's order history
+app.get('/api/orders/mine', authenticateUser, async (req, res) => {
+  try {
+    const orders = await Order.find({ 'customer.email': req.user.email }).sort({ date: -1 }).limit(100);
+    res.json({ orders });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch orders', error: err.message });
+  }
+});
 
 async function runChatRetentionSweep() {
   try {
@@ -778,6 +918,34 @@ async function sendWhatsAppNotification(order) {
     console.error('WhatsApp notification failed:', err.response?.data || err.message);
   }
 }
+
+// ================= SIMPLE RATE LIMITER =================
+const rateLimits = new Map();
+function rateLimit(windowMs = 60000, max = 30) {
+  return (req, res, next) => {
+    try {
+      const key = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+      const now = Date.now();
+      const entry = rateLimits.get(key) || { count: 0, start: now };
+      if (now - entry.start > windowMs) {
+        entry.count = 1;
+        entry.start = now;
+      } else {
+        entry.count += 1;
+      }
+      rateLimits.set(key, entry);
+      if (entry.count > max) return res.status(429).json({ message: 'Too many requests' });
+      next();
+    } catch (err) {
+      next();
+    }
+  };
+}
+
+// Apply stricter rate limits to auth and order endpoints
+app.use('/api/users/register', rateLimit(60 * 1000, 5));
+app.use('/api/users/login', rateLimit(60 * 1000, 10));
+app.use('/api/orders', rateLimit(60 * 1000, 20));
 
 // ================= ADMIN ROUTES =================
 app.post('/api/admin/register', async (req, res) => {
@@ -1606,5 +1774,12 @@ function startServer(portIndex = 0) {
     console.log(`🚀 Global Sports Backend running on port ${port}`);
   });
 }
+// Only start server automatically when run directly (not when imported for tests)
+if (require.main === module) {
+  (async () => {
+    await connectDatabase();
+    startServer();
+  })();
+}
 
-startServer();
+module.exports = { app, startServer, connectDatabase };

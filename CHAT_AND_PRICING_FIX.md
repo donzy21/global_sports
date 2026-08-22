@@ -1,6 +1,3 @@
-════════════════════════════════════════════════════════════════════════════
-🚀 GLOBAL SPORTS - CHAT & DELIVERY PRICING FIX
-════════════════════════════════════════════════════════════════════════════
 
 ✅ CHANGES MADE:
 
@@ -16,7 +13,7 @@
       • Peak hours (12-2pm, 6-8pm): +15% surcharge
       • Minimum delivery: 8 GHS
    
-   💰 Example Prices:
+   Example Prices:
       • Same location (0km): 8 GHS (minimum)
       • 3.1km away: 9.5 GHS (actual test result)
       • 5km away: ~11.5 GHS
