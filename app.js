@@ -1528,7 +1528,11 @@ function applyPromotionsToProducts() {
     delete p.discountedPrice;
     delete p.promotionBadge;
 
-    const promos = (allPromotions || []).filter(pr => pr.active && pr.productIds && pr.productIds.includes(p._id));
+    const promos = (allPromotions || []).filter(pr => {
+      if (!pr.active) return false;
+      const productIds = Array.isArray(pr.productIds) ? pr.productIds : [];
+      return productIds.length === 0 || productIds.includes(p._id);
+    });
     if (!promos.length) continue;
     // pick the best promo (largest discountPercent or lowest discountPrice)
     promos.sort((a, b) => (b.discountPercent || 0) - (a.discountPercent || 0));
@@ -1918,7 +1922,7 @@ cartStockValidationTimer = setTimeout(() => {
 function addToCart(productId, size) {
 const product = allProducts.find(p => p._id === productId);
 if (!product) return;
-cart.push({ ...product, selectedSize: size || null });
+cart.push({ ...product, price: Number(product.discountedPrice || product.price || 0), originalPrice: Number(product.price || 0), selectedSize: size || null });
 updateCartUI();
 const sizeLabel = size ? ` (${size})` : '';
 showToast(`${product.name}${sizeLabel} added to cart`, 'success');
@@ -1941,9 +1945,11 @@ return;
 }
 let total = 0;
 itemsEl.innerHTML = cart.map((item, idx) => {
-total += item.price;
+total += Number(item.price || 0);
 const sizeLabel = item.selectedSize ? `<div class="cart-item-size">Size: ${escHtml(item.selectedSize)}</div>` : '';
-return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-item-name">${escHtml(item.name)}</div> ${sizeLabel} <div class="cart-item-price">GHS ${Number(item.price).toFixed(2)}</div> </div> <button class="cart-remove" onclick="removeFromCart(${idx})" title="Remove">✕</button> </li>`;
+const originalPrice = Number(item.originalPrice || 0);
+const priceMarkup = originalPrice > Number(item.price || 0) ? `<span class="cart-item-old-price">GHS ${originalPrice.toFixed(2)}</span> GHS ${Number(item.price).toFixed(2)}` : `GHS ${Number(item.price).toFixed(2)}`;
+return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-item-name">${escHtml(item.name)}</div> ${sizeLabel} <div class="cart-item-price">${priceMarkup}</div> </div> <button class="cart-remove" onclick="removeFromCart(${idx})" title="Remove">✕</button> </li>`;
 }).join('');
 document.getElementById('cartTotal').textContent = total.toFixed(2);
 scheduleCartStockValidation();

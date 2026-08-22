@@ -159,7 +159,17 @@
         </div>
       </div>
     </div>
+      <div class="sort-wrap">
+        <label for="sortSelect">Sort products</label>
+        <select id="sortSelect" onchange="sortProducts(this.value)">
+          <option value="featured">Featured</option>
+          <option value="priceLow">Price: low to high</option>
+          <option value="priceHigh">Price: high to low</option>
+          <option value="nameAZ">Name: A to Z</option>
+        </select>
+      </div>
   </div>
+  <p class="shop-meta" id="shopMeta" aria-live="polite">Loading products...</p>
   <div class="products-grid" id="productsGrid">
     <div class="skeleton-card"></div>
     <div class="skeleton-card"></div>
