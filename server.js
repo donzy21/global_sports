@@ -250,6 +250,20 @@ const Promotion = mongoose.model('Promotion', new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 }));
 
+// ================= AUTH MIDDLEWARE =================
+function authenticate(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  try {
+    req.admin = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired token' });
+  }
+}
+
 // Public: list active promotions (within date range and active=true)
 app.get('/api/promotions', async (req, res) => {
   try {
@@ -937,21 +951,6 @@ async function authorizeChatAccess(reference, access = {}) {
 
   return { ok: false, status: 400, message: 'Unsupported chat role' };
 }
-
-// ================= AUTH MIDDLEWARE (FIXED) =================
-const authenticate = (req, res, next) => {
-  const authHeader = req.headers['authorization'] || '';
-  // FIX: Properly handle Bearer prefix.
-  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-  
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    req.admin = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid or expired token' });
-  }
-};
 
 const authenticateRider = (req, res, next) => {
   // Check Authorization header first, then query params (for EventSource/SSE)
