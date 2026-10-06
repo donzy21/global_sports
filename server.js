@@ -939,7 +939,7 @@ async function authorizeChatAccess(reference, access = {}) {
 }
 
 // ================= AUTH MIDDLEWARE (FIXED) =================
-const authenticate = (req, res, next) => {
+function authenticate(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   // FIX: Properly handle Bearer prefix.
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
@@ -951,7 +951,7 @@ const authenticate = (req, res, next) => {
   } catch {
     res.status(401).json({ message: 'Invalid or expired token' });
   }
-};
+}
 
 const authenticateRider = (req, res, next) => {
   // Check Authorization header first, then query params (for EventSource/SSE)
