@@ -161,6 +161,20 @@ const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
 const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
 const LOW_STOCK_THRESHOLD = Math.max(0, Number(process.env.LOW_STOCK_THRESHOLD || 5));
 
+// ================= AUTH MIDDLEWARE =================
+function authenticate(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  try {
+    req.admin = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired token' });
+  }
+}
+
 // ================= DATABASE CONNECTION =================
 async function connectDatabase() {
   if (!MONGO_URI) {
@@ -936,21 +950,6 @@ async function authorizeChatAccess(reference, access = {}) {
   }
 
   return { ok: false, status: 400, message: 'Unsupported chat role' };
-}
-
-// ================= AUTH MIDDLEWARE (FIXED) =================
-function authenticate(req, res, next) {
-  const authHeader = req.headers['authorization'] || '';
-  // FIX: Properly handle Bearer prefix.
-  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-  
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    req.admin = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid or expired token' });
-  }
 }
 
 const authenticateRider = (req, res, next) => {
