@@ -1070,7 +1070,7 @@ async function loadCartFromServer() {
 }
 
 // ===================== INIT =====================
-window.addEventListener('DOMContentLoaded', async () => {
+async function initializeApp() {
 console.log('🚀 Global Sports app initializing...');
 console.log('📍 API candidates:', getApiCandidates());
 console.log('ℹ️ Open browser console (F12) to see debug messages');
@@ -1108,7 +1108,13 @@ connectRiderSSE();
 }
 
 updateRecentChatShortcut();
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initializeApp, { once: true });
+} else {
+  initializeApp();
+}
 
 // ===================== TOAST =====================
 function showToast(msg, type = '') {
