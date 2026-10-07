@@ -261,6 +261,21 @@ app.get('/api/promotions', async (req, res) => {
   }
 });
 
+// ================= AUTH MIDDLEWARE (FIXED) =================
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers['authorization'] || '';
+  // FIX: Properly handle ******
+  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  try {
+    req.admin = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired token' });
+  }
+};
+
 // Admin: CRUD promotions
 app.get('/api/admin/promotions', authenticate, async (req, res) => {
   try {
