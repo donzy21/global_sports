@@ -1079,7 +1079,9 @@ setTimeout(() => {
 document.getElementById('loader').classList.add('hidden');
 }, 1300);
 
+if (!String(APP_CONFIG.apiUrl || '').trim()) {
 await discoverApiUrl();
+}
 console.log('✅ API URL detected:', API_URL);
 console.log('🔌 Socket.IO base:', getSocketBase());
 console.log('📦 Socket.IO library available:', typeof io !== 'undefined' ? '✅' : '❌');
@@ -1494,7 +1496,9 @@ document.getElementById('riderRegisterForm').style.display = formId === 'riderRe
 async function fetchProducts() {
 try {
     allProducts = await fetchProductsFromBase(API_URL);
-    // Fetch active promotions and apply to products
+  // Render products before optional promotion data can delay the catalog.
+  applyProductView();
+
     try {
       allPromotions = await fetchPromotions();
     } catch (e) {
