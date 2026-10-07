@@ -564,6 +564,13 @@
 </footer>
 
 <script src="app.js"></script>
+<script>
+  // Keep a failed API/CDN bootstrap from covering the entire storefront.
+  window.setTimeout(function () {
+    var loader = document.getElementById('loader');
+    if (loader) loader.classList.add('hidden');
+  }, 2500);
+</script>
 
 </body>
 </html>
