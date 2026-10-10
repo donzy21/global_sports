@@ -1110,10 +1110,20 @@ connectRiderSSE();
 updateRecentChatShortcut();
 }
 
+let appInitialized = false;
+function startApp() {
+  if (appInitialized) return;
+  appInitialized = true;
+  initializeApp().catch((error) => {
+    console.error('App initialization failed:', error);
+  });
+}
+
 if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', initializeApp, { once: true });
+  window.addEventListener('DOMContentLoaded', startApp, { once: true });
+  window.setTimeout(startApp, 0);
 } else {
-  initializeApp();
+  startApp();
 }
 
 // ===================== TOAST =====================
