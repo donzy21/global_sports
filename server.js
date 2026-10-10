@@ -206,11 +206,38 @@ async function connectDatabase() {
   }
 
   try {
-    await mongoose.connect(MONGO_URI);
+    await mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      heartbeatFrequencyMS: 10000
+    });
     console.log('MongoDB Connected');
   } catch (err) {
     console.error('MongoDB connection error:', err);
     // Don't throw here to keep the app importable for tests — allow callers to decide
+  }
+}
+
+async function ensureDatabaseConnection() {
+  if (!MONGO_URI || process.env.DISABLE_DB_CONNECT === 'true') return false;
+
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      await connectDatabase();
+    }
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) return false;
+    await mongoose.connection.db.admin().ping();
+    return true;
+  } catch (err) {
+    console.warn('MongoDB health check failed; reconnecting:', err.message);
+    try {
+      await mongoose.disconnect();
+      await connectDatabase();
+      return mongoose.connection.readyState === 1 && Boolean(mongoose.connection.db);
+    } catch (reconnectErr) {
+      console.error('MongoDB reconnect failed:', reconnectErr.message);
+      return false;
+    }
   }
 }
 
@@ -542,17 +569,10 @@ async function healthHandler(req, res) {
   const dbState = stateMap[mongoose.connection.readyState] || 'unknown';
   let db = { ok: false, state: dbState, latencyMs: null, error: null };
 
-  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
-    try {
-      await mongoose.connection.db.admin().ping();
-      db.ok = true;
-      db.latencyMs = Date.now() - startedAt;
-    } catch (err) {
-      db.error = err.message;
-    }
-  } else {
-    db.error = 'Database is not connected';
-  }
+  db.ok = await ensureDatabaseConnection();
+  db.latencyMs = db.ok ? Date.now() - startedAt : null;
+  if (!db.ok) db.error = 'Database is not connected';
+  db.state = stateMap[mongoose.connection.readyState] || 'unknown';
 
   const body = {
     ok: db.ok,
