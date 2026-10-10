@@ -1523,6 +1523,10 @@ try {
 } catch (retryErr) {
   console.error('Retry fetching products failed:', retryErr);
 }
+document.getElementById('productsGrid').innerHTML =
+`<div class="empty-state"><p>Could not load products right now. Check backend deployment/API URL.</p></div>`;
+}
+}
 
 async function fetchPromotions() {
   const res = await fetch(`${API_URL}/promotions`, { cache: 'no-store' });
@@ -1586,11 +1590,6 @@ function applyPromotionsToProducts() {
     }
     p.promotionBadge = promo.title || 'Sale';
   }
-}
-
-document.getElementById('productsGrid').innerHTML =
-`<div class="empty-state"><p>Could not load products right now. Check backend deployment/API URL.</p></div>`;
-}
 }
 
 function applyProductView() {
