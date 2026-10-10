@@ -272,6 +272,7 @@ const Promotion = mongoose.model('Promotion', new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, default: '' },
   productIds: { type: [String], default: [] },
+  productLink: { type: String, default: '' },
   discountPercent: { type: Number, default: 0 },
   discountPrice: { type: Number, default: 0 },
   startsAt: { type: Date, default: Date.now },
@@ -310,6 +311,7 @@ app.post('/api/admin/promotions', authenticate, async (req, res) => {
       title: String(payload.title || '').trim() || 'Promotion',
       description: String(payload.description || ''),
       productIds: Array.isArray(payload.productIds) ? payload.productIds : [],
+      productLink: String(payload.productLink || '').trim(),
       discountPercent: Number(payload.discountPercent || 0),
       discountPrice: payload.discountPrice ? Number(payload.discountPrice) : 0,
       startsAt: payload.startsAt ? new Date(payload.startsAt) : new Date(),
@@ -1047,6 +1049,37 @@ app.post('/api/admin/login', async (req, res) => {
   if (!valid) return res.status(400).json({ message: 'Invalid credentials' });
   const token = jwt.sign({ id: admin._id, username: admin.username }, JWT_SECRET, { expiresIn: '1d' });
   res.json({ message: 'Login successful', token });
+});
+
+app.put('/api/admin/account', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, username, newPassword } = req.body || {};
+    if (!currentPassword) return res.status(400).json({ message: 'Current password is required' });
+
+    const admin = await Admin.findById(req.admin.id);
+    if (!admin || !(await bcrypt.compare(String(currentPassword), admin.password))) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    const nextUsername = String(username || '').trim();
+    const nextPassword = String(newPassword || '');
+    if (!nextUsername && !nextPassword) return res.status(400).json({ message: 'Enter a new username or password' });
+    if (nextUsername && nextUsername.length < 3) return res.status(400).json({ message: 'Username must be at least 3 characters' });
+    if (nextPassword && nextPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
+
+    if (nextUsername && nextUsername !== admin.username) {
+      const existing = await Admin.findOne({ username: nextUsername, _id: { $ne: admin._id } });
+      if (existing) return res.status(400).json({ message: 'Username already exists' });
+      admin.username = nextUsername;
+    }
+    if (nextPassword) admin.password = await bcrypt.hash(nextPassword, 10);
+    await admin.save();
+
+    const token = jwt.sign({ id: admin._id, username: admin.username }, JWT_SECRET, { expiresIn: '1d' });
+    res.json({ message: 'Admin account updated', token, username: admin.username });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update admin account', error: err.message });
+  }
 });
 
 // ================= PRODUCT ROUTES =================
