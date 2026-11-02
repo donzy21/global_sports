@@ -379,6 +379,20 @@ app.put('/api/admin/promotions/:id', authenticate, async (req, res) => {
   }
 });
 
+app.patch('/api/admin/promotions/:id/end', authenticate, async (req, res) => {
+  try {
+    const ended = await Promotion.findByIdAndUpdate(
+      req.params.id,
+      { $set: { active: false } },
+      { new: true, runValidators: true }
+    );
+    if (!ended) return res.status(404).json({ message: 'Promotion not found' });
+    res.json({ promotion: ended });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not end promotion', error: err.message });
+  }
+});
+
 app.delete('/api/admin/promotions/:id', authenticate, async (req, res) => {
   try {
     const id = req.params.id;

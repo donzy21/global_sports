@@ -1430,7 +1430,10 @@ function renderAdminPromotions() {
           <div class="product-name" style="font-size:1.1rem; margin-bottom:4px;">${escHtml(p.title || 'Promotion')}</div>
           <div class="product-desc">${escHtml(p.description || 'No description')}</div>
         </div>
-        <button class="cancel-btn" onclick="deletePromotionById('${p._id}')">Delete</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${p.active ? `<button class="cancel-btn" onclick="endPromotionById('${p._id}')">End promotion</button>` : ''}
+          <button class="cancel-btn" onclick="deletePromotionById('${p._id}')">Delete</button>
+        </div>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <span class="badge">${p.discountPercent ? `${Number(p.discountPercent).toFixed(0)}% off` : `GHS ${Number(p.discountPrice || 0).toFixed(2)}`}</span>
@@ -1480,6 +1483,24 @@ async function createPromotionFromForm(event) {
     await fetchProducts();
   } catch (err) {
     showToast(err.message || 'Could not create promotion', 'error');
+  }
+}
+
+async function endPromotionById(id) {
+  if (!id || !adminToken) return;
+  if (!window.confirm('End this promotion now? It will no longer appear to customers.')) return;
+  try {
+    const res = await fetch(`${API_URL}/admin/promotions/${id}/end`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(data?.message || 'Could not end promotion');
+    showToast('Promotion ended', 'success');
+    await loadAdminPromotions();
+    await fetchProducts();
+  } catch (err) {
+    showToast(err.message || 'Could not end promotion', 'error');
   }
 }
 
