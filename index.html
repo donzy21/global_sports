@@ -123,7 +123,7 @@
 <aside class="cart-sidebar" id="cartSidebar">
   <div class="cart-header">
     <h2>Your Cart</h2>
-    <button class="close-btn" onclick="toggleCart()">✕</button>
+    <button class="close-btn" onclick="toggleCart()">Close</button>
   </div>
   <ul class="cart-items" id="cartItems"></ul>
   <div class="cart-footer">
@@ -136,13 +136,13 @@
 <!-- ======== SHOP SECTION ======== -->
 
 <section id="shopSection" class="section active">
+  <div class="promotion-strip" id="promotionStrip" hidden aria-live="polite"></div>
+
   <div class="shop-hero">
     <p class="hero-eyebrow">New arrivals · 2026</p>
     <h1 class="hero-title">Play Hard.<br>Look Sharp.</h1>
     <p class="hero-sub">Premium sports apparel delivered across Ghana</p>
   </div>
-
-  <div class="promotion-strip" id="promotionStrip" hidden aria-live="polite"></div>
 
   <div class="discover-toolbar">
     <div class="filter-bar">
@@ -336,7 +336,7 @@
   </div>
   <!-- New order notification banner -->
   <div class="new-order-banner" id="newOrderBanner" style="display:none">
-    🔔 New order available! <button onclick="loadAvailableOrders(); hideNewOrderBanner()">View now</button>
+    New order available! <button onclick="loadAvailableOrders(); hideNewOrderBanner()">View now</button>
   </div>
   <div id="availableOrdersList" class="orders-list"></div>
 </div>
@@ -359,7 +359,7 @@
   <div class="modal size-modal">
     <div class="modal-header">
       <h3 id="sizeModalTitle">Choose Size</h3>
-      <button class="close-btn" onclick="closeSizePicker()">✕</button>
+      <button class="close-btn" onclick="closeSizePicker()">Close</button>
     </div>
     <div class="size-product-info" id="sizeProductInfo"></div>
     <div class="size-options" id="sizeOptions"></div>
@@ -377,7 +377,7 @@
   <div class="modal checkout-modal" onclick="event.stopPropagation()">
     <div class="modal-header">
       <h3>Complete Your Order</h3>
-      <button class="close-btn" onclick="closeCheckout()">✕</button>
+      <button class="close-btn" onclick="closeCheckout()">Close</button>
     </div>
     <div class="form-group">
       <label>Full Name *</label>
@@ -414,7 +414,7 @@
 
 <!-- OpenStreetMap Location Picker (free) -->
 <div class="form-group">
-  <label>📍 Pin Your Delivery Location</label>
+  <label>Pin Your Delivery Location</label>
   <button class="location-btn" onclick="getMyLocation()">Use My Current Location</button>
   <button class="location-btn secondary" onclick="useShopPickup()" style="margin-top:10px">Pickup at the shop - no delivery fee</button>
   <div id="mapPicker" class="map-picker"></div>
@@ -434,7 +434,7 @@
   <div class="modal">
     <div class="modal-header">
       <h3>Order Details</h3>
-      <button class="close-btn" onclick="closeRiderModal()">✕</button>
+      <button class="close-btn" onclick="closeRiderModal()">Close</button>
     </div>
     <div id="riderOrderDetail"></div>
     <div id="riderOrderMap" class="map-picker" style="margin-top:16px"></div>
@@ -448,7 +448,7 @@
   <div class="modal chat-modal" onclick="event.stopPropagation()">
     <div class="modal-header">
       <h3 id="chatModalTitle">Live Chat</h3>
-      <button class="close-btn" onclick="closeChatModal()">✕</button>
+      <button class="close-btn" onclick="closeChatModal()">Close</button>
     </div>
     <p class="chat-context" id="chatContext"></p>
     <div class="chat-tools" id="chatTools" style="display:none">
@@ -468,7 +468,7 @@
   <div class="modal" style="max-width:900px; width:min(90vw, 900px);">
     <div class="modal-header">
       <h3>Promotions Manager</h3>
-      <button class="close-btn" onclick="closePromotionAdmin()">✕</button>
+      <button class="close-btn" onclick="closePromotionAdmin()">Close</button>
     </div>
 
     <div id="promotionAdminLoginPanel">
@@ -550,8 +550,6 @@
       <a href="#shopSection">Shop</a>
       <a href="#trackSection">Track Order</a>
       <a href="#riderLoginSection">Rider Login</a>
-      <button class="footer-link-button" onclick="openPromotionAdmin()" style="background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:0;text-align:left;">Promotions</button>
-      <a href="/admin-dashboard/" target="_blank" rel="noopener noreferrer">Admin Dashboard</a>
         <a href="about.html">About</a>
       <a href="contact.html">Contact</a>
       <a href="privacy.html">Privacy Policy</a>

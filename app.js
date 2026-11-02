@@ -499,7 +499,7 @@ function refreshRiderChatUnreadIndicators() {
 const buttons = document.querySelectorAll('#myOrdersList .chat-btn[data-chat-reference]');
 buttons.forEach((btn) => {
 const reference = btn.getAttribute('data-chat-reference') || '';
-const base = btn.getAttribute('data-chat-base-label') || '💬 Chat';
+const base = btn.getAttribute('data-chat-base-label') || 'Chat';
 btn.textContent = formatChatButtonLabel(base, getChatUnreadCount(reference));
 });
 }
@@ -606,7 +606,7 @@ listEl.innerHTML = `<div class="chat-empty">${escHtml(err.message || 'Could not 
 
 async function openChatModal(context) {
 if (!context?.reference) {
-console.error('❌ Chat: No reference provided');
+console.error('Chat: No reference provided');
 return;
 }
 activeChat = context;
@@ -621,7 +621,7 @@ const listEl = document.getElementById('chatMessages');
 const overlayEl = document.getElementById('chatOverlay');
 
 if (!overlayEl) {
-console.error('❌ Chat: Modal elements not found in DOM');
+console.error('Chat: Modal elements not found in DOM');
 showToast('Chat UI not available', 'error');
 return;
 }
@@ -636,7 +636,7 @@ document.body.classList.add('chat-modal-open');
 setTrackMapInteraction(false);
 maybeEnableBrowserNotifications();
 
-console.log('📋 Chat context:', {reference: context.reference, role: context.role, name: context.name});
+console.log('Chat context:', {reference: context.reference, role: context.role, name: context.name});
 
 // Always load REST history first
 await loadChatHistory(context);
@@ -651,7 +651,7 @@ chatSocket = null;
 
 // Check if io is available
 if (typeof io === 'undefined') {
-console.error('❌ Chat: Socket.IO library not loaded');
+console.error('Chat: Socket.IO library not loaded');
 if (listEl && !listEl.querySelector('.chat-message')) {
 listEl.innerHTML = `<div class="chat-empty">Connected via HTTP. Messages will sync when you send them.</div>`;
 }
@@ -659,7 +659,7 @@ return;
 }
 
 const socketBase = getSocketBase();
-console.log('📡 Chat: Attempting Socket.IO connection to', socketBase);
+console.log('Chat: Attempting Socket.IO connection to', socketBase);
 
 try {
 chatSocket = io(socketBase, { 
@@ -670,7 +670,7 @@ reconnectionAttempts: 5,
 timeout: 5000
 });
 } catch (err) {
-console.error('❌ Chat: Failed to initialize Socket.IO:', err.message);
+console.error('Chat: Failed to initialize Socket.IO:', err.message);
 return;
 }
 
@@ -692,14 +692,14 @@ try {
   await openChatModal(refreshedContext);
   return true;
 } catch (err) {
-  console.error('❌ Chat token refresh failed:', err.message);
+  console.error('Chat token refresh failed:', err.message);
   return false;
 }
 }
 
 chatSocket.on('connect', () => {
 socketConnected = true;
-console.log('✅ Chat Socket Connected:', chatSocket.id);
+console.log('Chat Socket Connected:', chatSocket.id);
 
 if (!joinAttempted) {
 joinAttempted = true;
@@ -711,7 +711,7 @@ chatToken: contextForJoin.chatToken || null,
 name: contextForJoin.name || ''
 }).then((ack) => {
 if (!ack?.ok) {
-console.error('❌ Chat join failed:', ack?.message);
+console.error('Chat join failed:', ack?.message);
 const invalidToken = String(ack?.message || '').toLowerCase().includes('invalid chat token');
 if (invalidToken) {
   retryCustomerChatJoin().then((retried) => {
@@ -724,7 +724,7 @@ if (invalidToken) {
 if (listEl) listEl.innerHTML = `<div class="chat-empty">${escHtml(ack?.message || 'Could not open chat')}</div>`;
 showToast('Chat failed: ' + (ack?.message || 'Unknown error'), 'error');
 } else {
-console.log('✅ Joined chat room for order:', context.reference);
+console.log('Joined chat room for order:', context.reference);
 if (contextForJoin.role === 'customer' && ack.chatToken && contextForJoin.reference) {
   safeStorageSet(`gs_chat_token_${contextForJoin.reference}`, ack.chatToken);
   if (activeChat?.reference === contextForJoin.reference) {
@@ -741,10 +741,10 @@ chatSubscriptionContext = { ...context };
 
 chatSocket.on('chat:history', (payload) => {
 if (!activeChat || payload.reference !== activeChat.reference) return;
-console.log('📨 Received chat history:', payload.messages?.length || 0, 'messages');
+console.log('Received chat history:', payload.messages?.length || 0, 'messages');
 // Don't overwrite if we already have messages from REST
 if (listEl && listEl.querySelector('.chat-message')) {
-console.log('💡 Chat: Keeping existing REST-loaded messages');
+console.log('Chat: Keeping existing REST-loaded messages');
 return;
 }
 renderChatHistory(payload.messages || []);
@@ -752,7 +752,7 @@ renderChatHistory(payload.messages || []);
 
 chatSocket.on('chat:message', (payload) => {
 if (!chatSubscriptionContext || payload.reference !== chatSubscriptionContext.reference) return;
-console.log('💬 New message from socket:', payload.senderName);
+console.log('New message from socket:', payload.senderName);
 const appended = appendChatMessageUnique(payload);
 if (!appended) return;
 
@@ -780,19 +780,19 @@ if (payload.byRole !== (activeChat.role || 'customer')) {
 chatSocket.on('disconnect', () => {
 socketConnected = false;
 chatIsJoined = false;
-console.log('⚠️ Chat Socket Disconnected');
+console.log('Chat Socket Disconnected');
 });
 
 chatSocket.on('connect_error', (err) => {
 socketConnected = false;
-console.error('❌ Chat Connection Error:', err.message);
+console.error('Chat Connection Error:', err.message);
 if (listEl && !listEl.querySelector('.chat-message')) {
-listEl.innerHTML = `<div class="chat-empty">📌 Using HTTP mode (slower). Messages will sync when you send them.</div>`;
+listEl.innerHTML = `<div class="chat-empty">Using HTTP mode (slower). Messages will sync when you send them.</div>`;
 }
 });
 
 chatSocket.on('error', (err) => {
-console.error('❌ Chat Socket Error:', err);
+console.error('Chat Socket Error:', err);
 });
 
 // Setup mobile keyboard handlers for this chat session
@@ -878,10 +878,10 @@ if (input) input.value = '';
 
 // Try socket first (realtime)
 if (chatSocket && chatSocket.connected && chatIsJoined) {
-console.log('📤 Sending via Socket.IO...');
+console.log('Sending via Socket.IO...');
 const ack = await emitWithAck(chatSocket, 'chat:message', message, 10000);
 if (!ack?.ok) {
-console.error('❌ Socket send failed:', ack?.message);
+console.error('Socket send failed:', ack?.message);
 showToast(ack?.message || 'Could not send message', 'error');
 failPendingMessage(pendingId);
 return;
@@ -896,7 +896,7 @@ createdAt: new Date().toISOString()
 markChatAsRead(activeChat.reference, chatMessageTotals.get(activeChat.reference) || 0);
 } else {
 // Fallback to HTTP
-console.log('📤 Socket not connected, sending via HTTP...');
+console.log('Socket not connected, sending via HTTP...');
 try {
 const res = await fetch(`${API_URL}/chat/${encodeURIComponent(activeChat.reference)}/messages`, {
 method: 'POST',
@@ -905,7 +905,7 @@ body: JSON.stringify(message)
 });
 const data = await res.json();
 if (!res.ok) throw new Error(data.message || 'Could not send message');
-console.log('✅ Message sent via HTTP');
+console.log('Message sent via HTTP');
 resolvePendingMessage(pendingId, data?.chatMessage || {
 reference: activeChat.reference,
 senderRole: message.senderRole,
@@ -915,7 +915,7 @@ createdAt: new Date().toISOString()
 });
 markChatAsRead(activeChat.reference, chatMessageTotals.get(activeChat.reference) || 0);
 } catch (err) {
-console.error('❌ HTTP send failed:', err.message);
+console.error('HTTP send failed:', err.message);
 showToast(err.message, 'error');
 failPendingMessage(pendingId);
 }
@@ -1071,8 +1071,8 @@ async function loadCartFromServer() {
 
 // ===================== INIT =====================
 async function initializeApp() {
-console.log('🚀 Global Sports app initializing...');
-console.log('📍 API candidates:', getApiCandidates());
+console.log('Global Sports app initializing...');
+console.log('API candidates:', getApiCandidates());
 console.log('ℹ️ Open browser console (F12) to see debug messages');
 
 setTimeout(() => {
@@ -1082,9 +1082,9 @@ document.getElementById('loader').classList.add('hidden');
 if (!String(APP_CONFIG.apiUrl || '').trim()) {
 await discoverApiUrl();
 }
-console.log('✅ API URL detected:', API_URL);
-console.log('🔌 Socket.IO base:', getSocketBase());
-console.log('📦 Socket.IO library available:', typeof io !== 'undefined' ? '✅' : '❌');
+console.log('API URL detected:', API_URL);
+console.log('Socket.IO base:', getSocketBase());
+console.log('Socket.IO library available:', typeof io !== 'undefined' ? 'yes' : 'no');
 
 fetchProducts();
 // If user is logged in, load persisted cart from server
@@ -1521,7 +1521,6 @@ try {
       allPromotions = [];
     }
     renderPromotionStrip();
-    applyPromotionsToProducts();
     applyProductView();
 } catch (err) {
 console.error('Error fetching products:', err);
@@ -1571,34 +1570,10 @@ function renderPromotionStrip() {
 }
 
 function applyPromotionsToProducts() {
-  const now = new Date();
   if (!Array.isArray(allProducts)) return;
   for (const p of allProducts) {
-    // Clear previous promo fields
     delete p.discountedPrice;
     delete p.promotionBadge;
-
-    const promos = (allPromotions || []).filter(pr => {
-      if (!pr.active) return false;
-      const productIds = Array.isArray(pr.productIds) ? pr.productIds : [];
-      return productIds.length === 0 || productIds.includes(p._id);
-    });
-    if (!promos.length) continue;
-    // pick the best promo (largest discountPercent or lowest discountPrice)
-    promos.sort((a, b) => (b.discountPercent || 0) - (a.discountPercent || 0));
-    const promo = promos[0];
-    // ensure promo is in date range
-    const starts = new Date(promo.startsAt || promo.createdAt || now);
-    const ends = new Date(promo.endsAt || now);
-    if (starts > now || ends < now) continue;
-    // determine discounted price
-    let discounted = 0;
-    if (promo.discountPrice && Number(promo.discountPrice) > 0) discounted = Number(promo.discountPrice);
-    else if (promo.discountPercent && Number(promo.discountPercent) > 0) discounted = Number(p.price) * (1 - Number(promo.discountPercent) / 100);
-    if (discounted && discounted < Number(p.price)) {
-      p.discountedPrice = Number(discounted.toFixed(2));
-    }
-    p.promotionBadge = promo.title || 'Sale';
   }
 }
 
@@ -1675,7 +1650,7 @@ return `
     ${stockBadge}
     <div class="product-card-media">
       ${imgHtml}
-      <div class="product-card-img placeholder" ${placeholderStyle}>🏅</div>
+      <div class="product-card-img placeholder" ${placeholderStyle}>No image</div>
     </div>
     <div class="product-card-body">
       <span class="product-category">${escHtml(p.category || '')}</span>
@@ -1684,8 +1659,7 @@ return `
       ${sizesPreview}
     </div>
     <div class="product-footer">
-      <div class="product-price">${p.discountedPrice ? `<span class="product-price-saved">GHS ${Number(p.price).toFixed(2)}</span> <span class="product-price-now">GHS ${Number(p.discountedPrice).toFixed(2)}</span>` : `<span>GHS</span> ${Number(p.price).toFixed(2)}`}</div>
-      ${p.promotionBadge ? `<div class="promo-badge">${escHtml(p.promotionBadge)}</div>` : ''}
+      <div class="product-price"><span>GHS</span> ${Number(p.price).toFixed(2)}</div>
       <button class="add-to-cart-btn" data-product-id="${p._id}" ${disabledAttr}>
         ${hasSizes ? 'Select Size' : '+ Cart'}
       </button>
@@ -1749,7 +1723,7 @@ pendingProductId = product._id;
 selectedSize     = null;
 
 document.getElementById('sizeModalTitle').textContent = `Choose Size — ${product.name}`;
-document.getElementById('sizeProductInfo').innerHTML = `<div class="size-product-preview"> ${product.image ?`<img src="${escHtml(product.image)}" alt="" onerror="this.style.display='none'">` : '<div class="size-product-img-placeholder">🏅</div>'} <div> <div style="font-weight:600;font-size:15px">${escHtml(product.name)}</div> <div style="color:var(--accent);font-family:var(--font-display);font-size:20px;margin-top:4px">GHS ${Number(product.price).toFixed(2)}</div> </div> </div>`;
+document.getElementById('sizeProductInfo').innerHTML = `<div class="size-product-preview"> ${product.image ?`<img src="${escHtml(product.image)}" alt="" onerror="this.style.display='none'">` : '<div class="size-product-img-placeholder">No image</div>'} <div> <div style="font-weight:600;font-size:15px">${escHtml(product.name)}</div> <div style="color:var(--accent);font-family:var(--font-display);font-size:20px;margin-top:4px">GHS ${Number(product.price).toFixed(2)}</div> </div> </div>`;
 
 document.getElementById('sizeOptions').innerHTML = product.sizes.map(s => `<button class="size-option" onclick="selectSize('${escHtml(s)}', this)">${escHtml(s)}</button>`).join('');
 
@@ -1994,7 +1968,7 @@ total += Number(item.price || 0);
 const sizeLabel = item.selectedSize ? `<div class="cart-item-size">Size: ${escHtml(item.selectedSize)}</div>` : '';
 const originalPrice = Number(item.originalPrice || 0);
 const priceMarkup = originalPrice > Number(item.price || 0) ? `<span class="cart-item-old-price">GHS ${originalPrice.toFixed(2)}</span> GHS ${Number(item.price).toFixed(2)}` : `GHS ${Number(item.price).toFixed(2)}`;
-return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-item-name">${escHtml(item.name)}</div> ${sizeLabel} <div class="cart-item-price">${priceMarkup}</div> </div> <button class="cart-remove" onclick="removeFromCart(${idx})" title="Remove">✕</button> </li>`;
+return ` <li class="cart-item"> <div class="cart-item-info"> <div class="cart-item-name">${escHtml(item.name)}</div> ${sizeLabel} <div class="cart-item-price">${priceMarkup}</div> </div> <button class="cart-remove" onclick="removeFromCart(${idx})" title="Remove">Remove</button> </li>`;
 }).join('');
 document.getElementById('cartTotal').textContent = total.toFixed(2);
 scheduleCartStockValidation();
@@ -2036,7 +2010,7 @@ refreshDeliveryQuote();
 function useShopPickup() {
 selectedLocation = { ...SHOP_PICKUP_LOCATION };
 document.getElementById('custAddress').value = selectedLocation.address;
-document.getElementById('locationHint').textContent = '📍 Pickup selected at the shop - no delivery fee';
+document.getElementById('locationHint').textContent = 'Pickup selected at the shop - no delivery fee';
 document.getElementById('locationHint').classList.add('location-set');
 if (checkoutMap) checkoutMap.setView([selectedLocation.lat, selectedLocation.lng], 17);
 if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);
@@ -2125,13 +2099,13 @@ fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=
 const address = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 selectedLocation = { lat, lng, address };
 document.getElementById('custAddress').value = address;
-document.getElementById('locationHint').textContent = `📍 ${address}`;
+document.getElementById('locationHint').textContent = address;
 document.getElementById('locationHint').classList.add('location-set');
 refreshDeliveryQuote();
 })
 .catch(() => {
 selectedLocation = { lat, lng, address: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
-document.getElementById('locationHint').textContent = `📍 Location pinned`;
+document.getElementById('locationHint').textContent = 'Location pinned';
 document.getElementById('locationHint').classList.add('location-set');
 refreshDeliveryQuote();
 });
@@ -2252,7 +2226,7 @@ checkoutMarker = null;
 updateCartUI();
 const ref = data.order.reference;
 localStorage.setItem(`gs_chat_token_${ref}`, data.order.chatToken || '');
-showToast('🎉 Order placed! Track it with ref: ' + ref, 'success');
+showToast('Order placed! Track it with ref: ' + ref, 'success');
 // Pre-fill tracking input and prompt user
 setTimeout(() => {
 document.getElementById('trackRef').value = ref;
@@ -2389,7 +2363,7 @@ iconSize: [20,20], iconAnchor: [10,10]
 if (!trackCustMarker) {
 trackCustMarker = L.marker([custLoc.lat, custLoc.lng], { icon: custIcon })
 .addTo(trackMap)
-.bindPopup('📍 Your delivery location');
+.bindPopup('Your delivery location');
 } else {
 trackCustMarker.setLatLng([custLoc.lat, custLoc.lng]);
 }
@@ -2398,14 +2372,14 @@ trackCustMarker.setLatLng([custLoc.lat, custLoc.lng]);
 if (riderLoc?.lat) {
 const riderIcon = L.divIcon({
 className: '',
-html: '<div style="width:24px;height:24px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:12px">🏍</div>',
+html: '<div style="width:24px;height:24px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:12px">R</div>',
 iconSize: [24,24], iconAnchor: [12,12]
 });
 
 if (!trackRiderMarker) {
   trackRiderMarker = L.marker([riderLoc.lat, riderLoc.lng], { icon: riderIcon })
     .addTo(trackMap)
-    .bindPopup(`🏍️ ${data.riderName || 'Rider'} is on the way!`);
+    .bindPopup(`${data.riderName || 'Rider'} is on the way!`);
 } else {
   // Smoothly move existing marker
   trackRiderMarker.setLatLng([riderLoc.lat, riderLoc.lng]);
@@ -2431,7 +2405,7 @@ document.getElementById('trackETA').innerHTML =
 data.status === 'paid'
 ? '<span class="eta-label">Waiting for rider to accept order</span>'
 : data.status === 'delivered'
-? '<span class="eta-label" style="color:var(--accent)">✅ Delivered!</span>'
+? '<span class="eta-label" style="color:var(--accent)">Delivered!</span>'
 : '<span class="eta-label">Rider not yet assigned</span>';
 trackMap.setView([custLoc.lat, custLoc.lng], 14);
 }
@@ -2501,7 +2475,7 @@ body:    JSON.stringify({ lat, lng, orderId: riderActiveOrder })
 { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
 );
 
-showToast('📍 GPS sharing started — customer can see you', 'success');
+showToast('GPS sharing started - customer can see you', 'success');
 }
 
 function stopRiderGPS() {
@@ -2534,7 +2508,7 @@ body: JSON.stringify({ fullName, phone, password, ghanaCardId, vehicleLicenseId 
 });
 const data = await res.json();
 if (res.ok) {
-sucEl.textContent = '✅ Application submitted! Wait for admin approval before logging in.';
+sucEl.textContent = 'Application submitted! Wait for admin approval before logging in.';
 ['riderRegName','riderRegPhone','riderRegPassword','riderRegGhanaCard','riderRegLicense']
 .forEach(id => document.getElementById(id).value = '');
 } else {
@@ -2656,7 +2630,7 @@ riderSSE = new EventSource(`${API_URL}/riders/notifications?token=${riderToken}`
 riderSSE.addEventListener('new_order', (e) => {
 const order = JSON.parse(e.data);
 showNewOrderBanner();
-showToast('🔔 New order available!', 'success');
+showToast('New order available!', 'success');
 // Auto-refresh if rider is on available orders tab
 if (document.getElementById('riderAvailable').classList.contains('active')) {
 loadAvailableOrders();
@@ -2795,7 +2769,7 @@ el.innerHTML = '<p style="color:var(--red)">Network error.</p>';
 function renderRiderOrderCard(o, showActions) {
 const date      = new Date(o.date).toLocaleDateString('en-GH', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
 const itemsHtml = (o.items || []).map(i => `<li>${escHtml(i.name)} — GHS ${Number(i.price).toFixed(2)}</li>`).join('');
-const locHtml   = o.customer?.location?.address ? `<div style="font-size:12px;color:var(--accent);margin-top:6px;font-weight:500">📍 ${escHtml(o.customer.location.address)}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">📍 No location provided</div>';
+const locHtml   = o.customer?.location?.address ? `<div style="font-size:12px;color:var(--accent);margin-top:6px;font-weight:500">${escHtml(o.customer.location.address)}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">No location provided</div>';
 const coordsDisplay = o.customer?.location?.lat ? `<div style="font-size:10px;color:var(--text-muted)">${o.customer.location.lat.toFixed(4)}, ${o.customer.location.lng.toFixed(4)}</div>` : '';
 const statusClass = `status-${o.status || 'pending'}`;
 if (o?.reference) {
@@ -2803,12 +2777,12 @@ syncChatUnreadFromTotal(o.reference, o.chatMessageCount || 0, o.lastChatMessageR
 }
 const unreadCount = getChatUnreadCount(o.reference || '');
 const chatBtn = !showActions
-? `<button class="chat-btn" data-chat-reference="${escHtml(o.reference || '')}" data-chat-base-label="💬 Chat" onclick="openRiderChat('${o.reference || ''}', '${escHtml(o.customer?.name || 'Customer')}')">${formatChatButtonLabel('💬 Chat', unreadCount)}</button>`
+? `<button class="chat-btn" data-chat-reference="${escHtml(o.reference || '')}" data-chat-base-label="Chat" onclick="openRiderChat('${o.reference || ''}', '${escHtml(o.customer?.name || 'Customer')}')">${formatChatButtonLabel('Chat', unreadCount)}</button>`
 : '';
 
-const actionBtns = showActions ? `<button class="accept-btn" onclick="acceptOrder('${o._id}')">✓ Accept</button> <button class="reject-btn" onclick="dismissOrder('${o._id}')">✗ Dismiss</button> ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">🗺 Map</button>`: ''}` : `<span class="status-badge ${statusClass}">${o.status}</span> ${o.status === 'assigned' ?`<button class="delivered-btn" onclick="markDelivered('${o._id}')">✓ Mark Delivered</button>`: ''} ${chatBtn} ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">🗺 Map</button>`: ''}`;
+const actionBtns = showActions ? `<button class="accept-btn" onclick="acceptOrder('${o._id}')">Accept</button> <button class="reject-btn" onclick="dismissOrder('${o._id}')">Dismiss</button> ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">Map</button>`: ''}` : `<span class="status-badge ${statusClass}">${o.status}</span> ${o.status === 'assigned' ?`<button class="delivered-btn" onclick="markDelivered('${o._id}')">Mark Delivered</button>`: ''} ${chatBtn} ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">Map</button>`: ''}`;
 
-return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">📞 ${escHtml(o.customer?.phone || '')}</div> ${locHtml} ${coordsDisplay} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> </div> <div class="rider-order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
+return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">${escHtml(o.customer?.phone || '')}</div> ${locHtml} ${coordsDisplay} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> </div> <div class="rider-order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
 }
 
 async function acceptOrder(orderId) {
@@ -2847,7 +2821,7 @@ method: 'PUT', headers: riderAuthHeaders()
 });
 if (res.ok) {
 stopRiderGPS();
-showToast('🎉 Delivery confirmed!', 'success');
+showToast('Delivery confirmed!', 'success');
 loadMyOrders();
 } else showToast('Error marking delivered', 'error');
 } catch { showToast('Network error', 'error'); }
@@ -2865,7 +2839,7 @@ showToast(isAvailable ? 'You are now available' : 'You are now offline', '');
 
 // ===================== MAP MODAL (Leaflet) =====================
 function viewOrderMap(orderId, lat, lng, address) {
-document.getElementById('riderOrderDetail').innerHTML = ` <div style="margin-bottom:12px"> <div style="font-size:12px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Delivery Location</div> <div style="font-size:14px;font-weight:500">📍 ${escHtml(address) || 'Location pinned on map'}</div> </div>`;
+document.getElementById('riderOrderDetail').innerHTML = ` <div style="margin-bottom:12px"> <div style="font-size:12px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Delivery Location</div> <div style="font-size:14px;font-weight:500">${escHtml(address) || 'Location pinned on map'}</div> </div>`;
 document.getElementById('riderModalActions').innerHTML = ` <a class="submit-btn" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" style="text-decoration:none;text-align:center;display:block"> Open in Google Maps for Navigation </a>`;
 document.getElementById('riderOrderModal').classList.add('open');
 
@@ -3017,7 +2991,7 @@ if (!query) return null;
 const normalized = query.toLowerCase();
 if (normalized.includes('tanoso') || normalized.includes('aamusted') || normalized.includes('global sports store') || normalized.includes('pickup at the shop')) {
 selectedLocation = { ...SHOP_PICKUP_LOCATION };
-document.getElementById('locationHint').textContent = `📍 ${shortLocationLabel(SHOP_PICKUP_LOCATION.address)} - no delivery fee`;
+document.getElementById('locationHint').textContent = `${shortLocationLabel(SHOP_PICKUP_LOCATION.address)} - no delivery fee`;
 document.getElementById('locationHint').classList.add('location-set');
 if (checkoutMap) checkoutMap.setView([selectedLocation.lat, selectedLocation.lng], 17);
 if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);
@@ -3047,7 +3021,7 @@ const lat = Number(place.lat);
 const lng = Number(place.lon);
 const address = place.display_name || query;
 selectedLocation = { lat, lng, address };
-document.getElementById('locationHint').textContent = `📍 ${shortLocationLabel(address)}`;
+document.getElementById('locationHint').textContent = shortLocationLabel(address);
 document.getElementById('locationHint').classList.add('location-set');
 if (checkoutMap) checkoutMap.setView([lat, lng], 16);
 if (checkoutMarker && checkoutMap) checkoutMap.removeLayer(checkoutMarker);

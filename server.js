@@ -358,7 +358,20 @@ app.put('/api/admin/promotions/:id', authenticate, async (req, res) => {
   try {
     const id = req.params.id;
     const payload = req.body || {};
-    const updated = await Promotion.findByIdAndUpdate(id, { $set: payload }, { new: true });
+    const updates = {
+      title: String(payload.title || '').trim() || 'Promotion',
+      description: String(payload.description || ''),
+      productIds: Array.isArray(payload.productIds) ? payload.productIds.map((value) => String(value).trim()).filter(Boolean) : [],
+      productLink: String(payload.productLink || '').trim(),
+      discountPercent: Number(payload.discountPercent || 0),
+      discountPrice: Number(payload.discountPrice || 0),
+      startsAt: payload.startsAt ? new Date(payload.startsAt) : new Date(),
+      endsAt: payload.endsAt ? new Date(payload.endsAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      pinned: !!payload.pinned,
+      active: payload.active === undefined ? true : !!payload.active,
+      bannerImage: String(payload.bannerImage || '')
+    };
+    const updated = await Promotion.findByIdAndUpdate(id, { $set: updates }, { new: true, runValidators: true });
     if (!updated) return res.status(404).json({ message: 'Promotion not found' });
     res.json({ promotion: updated });
   } catch (err) {
@@ -369,7 +382,8 @@ app.put('/api/admin/promotions/:id', authenticate, async (req, res) => {
 app.delete('/api/admin/promotions/:id', authenticate, async (req, res) => {
   try {
     const id = req.params.id;
-    await Promotion.findByIdAndDelete(id);
+    const deleted = await Promotion.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ message: 'Promotion not found' });
     res.json({ message: 'Promotion deleted' });
   } catch (err) {
     res.status(500).json({ message: 'Could not delete promotion', error: err.message });
@@ -1000,7 +1014,7 @@ async function sendWhatsAppNotification(order) {
   }
   const itemList = order.items.map(i => `• ${i.name} — GHS ${i.price}`).join('\n');
   const message =
-  `📦 *New Order | Global Sports*\n\n` +
+  `*New Order | Global Sports*\n\n` +
   `*Customer:* ${order.customer.name}\n` +
   `*Phone:* ${order.customer.phone}\n` +
   `*Email:* ${order.customer.email}\n` +
@@ -1680,13 +1694,13 @@ app.post('/api/chat/:reference/clear', async (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('🔌 New Socket.IO connection:', socket.id);
+  console.log('New Socket.IO connection:', socket.id);
   
   socket.on('chat:join', async (payload = {}, ack) => {
     try {
       const reference = normalizeChatReference(payload.reference);
       const role = String(payload.role || '').trim();
-      console.log(`📨 [${socket.id}] chat:join - reference: ${reference}, role: ${role}`);
+      console.log(`[${socket.id}] chat:join - reference: ${reference}, role: ${role}`);
       
       const auth = await authorizeChatAccess(reference, {
         role,
@@ -1694,7 +1708,7 @@ io.on('connection', (socket) => {
         chatToken: payload.chatToken
       });
       if (!auth.ok) {
-        console.error(`❌ [${socket.id}] Auth failed: ${auth.message}`);
+        console.error(`[${socket.id}] Auth failed: ${auth.message}`);
         if (typeof ack === 'function') ack({ ok: false, message: auth.message });
         return;
       }
@@ -1709,10 +1723,10 @@ io.on('connection', (socket) => {
         chatToken: payload.chatToken || null
       };
       socket.join(chatRoom(resolvedReference));
-      console.log(`✅ [${socket.id}] Joined room: ${chatRoom(resolvedReference)}`);
+      console.log(`[${socket.id}] Joined room: ${chatRoom(resolvedReference)}`);
 
       const messages = await ChatMessage.find({ reference: resolvedReference }).sort({ createdAt: 1 }).limit(200);
-      console.log(`📤 [${socket.id}] Sending ${messages.length} messages to history`);
+      console.log(`[${socket.id}] Sending ${messages.length} messages to history`);
       
       socket.emit('chat:history', {
         reference: resolvedReference,
@@ -1727,7 +1741,7 @@ io.on('connection', (socket) => {
 
       if (typeof ack === 'function') ack({ ok: true, chatToken: auth.order?.chatToken || null });
     } catch (err) {
-      console.error(`❌ [${socket.id}] Error in chat:join:`, err.message);
+      console.error(`[${socket.id}] Error in chat:join:`, err.message);
       if (typeof ack === 'function') ack({ ok: false, message: err.message });
     }
   });
@@ -1741,7 +1755,7 @@ io.on('connection', (socket) => {
       const chatToken = payload.chatToken || chat.chatToken || null;
 
       if (!reference || !role) {
-        console.error(`❌ [${socket.id}] Not in a chat room`);
+        console.error(`[${socket.id}] Not in a chat room`);
         if (typeof ack === 'function') ack({ ok: false, message: 'Join a chat room first' });
         return;
       }
@@ -1752,7 +1766,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      console.log(`💬 [${socket.id}] Sending message to ${reference}: "${cleanText.substring(0, 50)}..."`);
+      console.log(`[${socket.id}] Sending message to ${reference}: "${cleanText.substring(0, 50)}..."`);
       
       const auth = await authorizeChatAccess(reference, {
         role,
@@ -1760,7 +1774,7 @@ io.on('connection', (socket) => {
         chatToken
       });
       if (!auth.ok) {
-        console.error(`❌ [${socket.id}] Re-auth failed: ${auth.message}`);
+        console.error(`[${socket.id}] Re-auth failed: ${auth.message}`);
         if (typeof ack === 'function') ack({ ok: false, message: auth.message });
         return;
       }
@@ -1793,7 +1807,7 @@ io.on('connection', (socket) => {
         createdAt: message.createdAt
       };
 
-      console.log(`📡 [${socket.id}] Broadcasting message to room: ${chatRoom(reference)}`);
+      console.log(`[${socket.id}] Broadcasting message to room: ${chatRoom(reference)}`);
       io.to(chatRoom(reference)).emit('chat:message', outgoing);
       if (outgoing.senderRole === 'customer') {
         notifyAssignedRiderChatMessage(reference, outgoing);
@@ -1803,13 +1817,13 @@ io.on('connection', (socket) => {
       }
       if (typeof ack === 'function') ack({ ok: true, message: outgoing });
     } catch (err) {
-      console.error(`❌ [${socket.id}] Error in chat:message:`, err.message);
+      console.error(`[${socket.id}] Error in chat:message:`, err.message);
       if (typeof ack === 'function') ack({ ok: false, message: err.message });
     }
   });
 
   socket.on('disconnect', () => {
-    console.log(`👋 Socket disconnected: ${socket.id}`);
+    console.log(`Socket disconnected: ${socket.id}`);
   });
 });
 
@@ -1903,7 +1917,7 @@ function startServer(portIndex = 0) {
   });
 
   server.listen(port, () => {
-    console.log(`🚀 Global Sports Backend running on port ${port}`);
+    console.log(`Global Sports Backend running on port ${port}`);
   });
 }
 // Only start server automatically when run directly (not when imported for tests)

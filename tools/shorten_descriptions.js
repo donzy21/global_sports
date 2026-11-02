@@ -114,7 +114,7 @@ async function run() {
       await product.save();
       updated++;
       
-      console.log(`✓ ${product.name}`);
+      console.log(`Updated: ${product.name}`);
       console.log(`  ${realWorldDesc}\n`);
     }
 
