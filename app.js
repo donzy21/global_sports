@@ -958,6 +958,7 @@ try {
 // ===================== STATE =====================
 let allProducts    = [];
 let allPromotions  = [];
+let adminPromotions = [];
 let cart           = [];
 let riderToken     = localStorage.getItem('gs_rider_token') || null;
 let riderInfo      = JSON.parse(localStorage.getItem('gs_rider_info') || 'null');
@@ -1409,7 +1410,7 @@ async function loadAdminPromotions() {
     });
     const data = await parseJsonSafe(res);
     if (!res.ok) throw new Error(data?.message || 'Could not load promotions');
-    allPromotions = Array.isArray(data.promotions) ? data.promotions : [];
+    adminPromotions = Array.isArray(data.promotions) ? data.promotions : [];
     renderAdminPromotions();
   } catch (err) {
     showToast(err.message || 'Could not load promotions', 'error');
@@ -1419,11 +1420,11 @@ async function loadAdminPromotions() {
 function renderAdminPromotions() {
   const list = document.getElementById('adminPromotionsList');
   if (!list) return;
-  if (!allPromotions.length) {
+  if (!adminPromotions.length) {
     list.innerHTML = '<div class="empty-state"><p>No promotions yet.</p></div>';
     return;
   }
-  list.innerHTML = allPromotions.map(p => `
+  list.innerHTML = adminPromotions.map(p => `
     <div class="product-card" style="padding:16px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
         <div>

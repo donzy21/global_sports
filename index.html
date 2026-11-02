@@ -487,7 +487,10 @@
       <div class="dashboard" style="padding:0; background: transparent; box-shadow:none; border:none;">
         <div class="orders-header" style="margin-bottom: 12px;">
           <h3>Campaigns</h3>
-          <button class="logout-btn" onclick="logoutAdmin()">Logout</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="refresh-btn" type="button" onclick="loadAdminPromotions()">Refresh</button>
+            <button class="logout-btn" type="button" onclick="logoutAdmin()">Logout</button>
+          </div>
         </div>
 
         <form id="promotionForm" onsubmit="createPromotionFromForm(event)">
