@@ -144,6 +144,12 @@
     <p class="hero-sub">Premium sports apparel delivered across Ghana</p>
   </div>
 
+  <div class="trust-strip" aria-label="Shopping benefits">
+    <div><strong>Authentic sportswear</strong><span>Quality products selected for active lifestyles</span></div>
+    <div><strong>Delivery across Ghana</strong><span>Track your order from dispatch to arrival</span></div>
+    <div><strong>Flexible payment</strong><span>Pay securely online or after delivery</span></div>
+  </div>
+
   <div class="discover-toolbar">
     <div class="filter-bar">
       <button class="filter-chip active" onclick="filterCategory('', this)">All</button>
@@ -183,6 +189,19 @@
     <div class="skeleton-card"></div>
     <div class="skeleton-card"></div>
   </div>
+
+  <section class="shop-confidence" aria-labelledby="shopConfidenceTitle">
+    <div class="confidence-heading">
+      <p class="hero-eyebrow">Why Global Sports</p>
+      <h2 id="shopConfidenceTitle">Shop with confidence</h2>
+      <p>Clear pricing, responsive support, and a delivery experience built for customers in Ghana.</p>
+    </div>
+    <div class="confidence-grid">
+      <article><span class="confidence-icon">01</span><h3>Choose your fit</h3><p>Browse by category, check available sizes, and select what works for your game.</p></article>
+      <article><span class="confidence-icon">02</span><h3>Choose how to pay</h3><p>Use Paystack for secure online payment or choose cash on delivery where available.</p></article>
+      <article><span class="confidence-icon">03</span><h3>Stay in control</h3><p>Use your order reference to follow delivery progress and contact support or your rider.</p></article>
+    </div>
+  </section>
 </section>
 
 <!-- ======== TRACK ORDER SECTION ======== -->
@@ -552,6 +571,31 @@
 
 <div class="toast" id="toast"></div>
 
+<section class="faq-section" aria-labelledby="faqTitle">
+  <div class="faq-heading">
+    <p class="hero-eyebrow">Need to know</p>
+    <h2 id="faqTitle">Frequently asked questions</h2>
+  </div>
+  <div class="faq-grid">
+    <details>
+      <summary>How long does delivery take?</summary>
+      <p>Delivery timing depends on your location and rider availability. You can track your order live after it is accepted.</p>
+    </details>
+    <details>
+      <summary>Can I pay when I receive my order?</summary>
+      <p>Yes. Select “Pay after receiving” at checkout. The rider will collect the order total and delivery fee when your order arrives.</p>
+    </details>
+    <details>
+      <summary>Can I pick up my order?</summary>
+      <p>Yes. Choose shop pickup during checkout to avoid a delivery fee. Your order reference will be used to confirm pickup.</p>
+    </details>
+    <details>
+      <summary>How do I request help?</summary>
+      <p>Contact us by phone, email, or WhatsApp using the support details below. Include your order reference so we can assist faster.</p>
+    </details>
+  </div>
+</section>
+
 <!-- ======== SITE FOOTER ======== -->
 
 <footer class="site-footer">
@@ -580,7 +624,7 @@
   </div>
 </footer>
 
-<script src="app.js?v=7e7e300"></script>
+<script src="app.js?v=8f2f100"></script>
 <script>
   // Keep a failed API/CDN bootstrap from covering the entire storefront.
   window.setTimeout(function () {
