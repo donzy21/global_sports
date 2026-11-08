@@ -274,6 +274,7 @@ const Order = mongoose.model('Order', new mongoose.Schema({
     }
   },
   status:      { type: String, default: 'pending' },
+  paymentMethod: { type: String, enum: ['paystack', 'cash_on_delivery'], default: 'paystack' },
   riderId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Rider', default: null },
   riderName:   { type: String, default: null },
   riderLocation: {
@@ -1324,6 +1325,7 @@ app.post('/api/orders/verify', async (req, res) => {
           order = created[0];
           createdNow = true;
         });
+
       } finally {
         session.endSession();
       }
@@ -1366,6 +1368,76 @@ app.post('/api/orders/verify', async (req, res) => {
     }
     console.error(err);
     res.status(500).json({ message: 'Error verifying payment' });
+  }
+});
+
+app.post('/api/orders/cash-on-delivery', async (req, res) => {
+  const { cart, customer } = req.body || {};
+  try {
+    if (!Array.isArray(cart) || !cart.length) {
+      return res.status(400).json({ message: 'Cart is empty' });
+    }
+    if (!customer?.name || !customer?.email || !customer?.phone || !customer?.location) {
+      return res.status(400).json({ message: 'Name, email, phone, and delivery location are required.' });
+    }
+
+    const subtotal = cart.reduce((total, item) => total + Number(item.price || 0), 0);
+    if (!Number.isFinite(subtotal) || subtotal <= 0) {
+      return res.status(400).json({ message: 'Order total is invalid.' });
+    }
+    const deliveryQuote = await buildDeliveryQuote(customer.location);
+    const reference = `GS_COD_${Date.now()}`;
+    const session = await mongoose.startSession();
+    let order;
+    try {
+      await session.withTransaction(async () => {
+        await reserveStockOrThrow(cart, session);
+        const created = await Order.create([{
+          reference,
+          subtotal,
+          deliveryFee: deliveryQuote.deliveryFee,
+          deliveryDistanceKm: deliveryQuote.distanceKm,
+          deliveryDurationMin: deliveryQuote.durationMin,
+          chatToken: crypto.randomBytes(16).toString('hex'),
+          items: cart,
+          amount: subtotal,
+          customer,
+          paymentMethod: 'cash_on_delivery',
+          status: 'pending'
+        }], { session });
+        order = created[0];
+      });
+    } finally {
+      session.endSession();
+    }
+
+    await sendWhatsAppNotification(order);
+    notifyRiders('new_order', {
+      orderId: order._id,
+      reference: order.reference,
+      items: order.items,
+      amount: order.amount,
+      deliveryFee: order.deliveryFee,
+      paymentMethod: order.paymentMethod,
+      distanceKm: order.deliveryDistanceKm,
+      customer: {
+        name: order.customer.name,
+        phone: order.customer.phone,
+        address: order.customer.address,
+        location: order.customer.location
+      },
+      date: order.date
+    });
+    return res.status(201).json({ message: 'Cash-on-delivery order saved', order, deliveryQuote });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Order could not be completed because one or more items are out of stock.',
+        ...(err.details ? { stock: err.details } : {})
+      });
+    }
+    console.error('Cash-on-delivery order failed:', err);
+    return res.status(500).json({ message: 'Could not place cash-on-delivery order.' });
   }
 });
 
@@ -1441,6 +1513,7 @@ app.get('/api/track/:reference', async (req, res) => {
       customerLocation: order.customer?.location || null,
       customerName:    order.customer?.name || null,
       subtotal:        order.subtotal || 0,
+      paymentMethod:   order.paymentMethod || 'paystack',
       deliveryFee:     order.deliveryFee || 0,
       deliveryDistanceKm: order.deliveryDistanceKm || 0,
       deliveryDurationMin: order.deliveryDurationMin || 0,

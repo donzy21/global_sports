@@ -423,7 +423,18 @@
 
 <p class="error-msg" id="checkoutError"></p>
 <div class="modal-total">Total: <strong>GHS <span id="modalTotal">0.00</span></strong></div>
-<button class="submit-btn" onclick="processPayment()">Pay with Paystack</button>
+<div class="payment-method-group">
+  <p class="payment-method-label">Payment method</p>
+  <label class="payment-method-option">
+    <input type="radio" name="paymentMethod" value="paystack" checked onchange="updatePaymentMethodUI()">
+    <span><strong>Pay now with Paystack</strong><small>Secure online payment</small></span>
+  </label>
+  <label class="payment-method-option">
+    <input type="radio" name="paymentMethod" value="cash_on_delivery" onchange="updatePaymentMethodUI()">
+    <span><strong>Pay after receiving</strong><small>Pay the rider when your order arrives</small></span>
+  </label>
+</div>
+<button class="submit-btn" id="checkoutSubmitBtn" onclick="processPayment()">Pay with Paystack</button>
 
   </div>
 </div>
@@ -553,7 +564,6 @@
       <a href="#shopSection">Shop</a>
       <a href="#trackSection">Track Order</a>
       <a href="#riderLoginSection">Rider Login</a>
-      <button class="footer-link-button" onclick="openPromotionAdmin()" style="background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:0;text-align:left;">Promotions</button>
       <a href="about.html">About</a>
       <a href="contact.html">Contact</a>
       <a href="privacy.html">Privacy Policy</a>

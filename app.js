@@ -167,13 +167,14 @@ const feeEl = document.getElementById('deliveryFee');
 const totalEl = document.getElementById('deliveryGrandTotal');
 const noteEl = document.getElementById('deliveryQuoteNote');
 const subtotal = cart.reduce((sum, item) => sum + Number(item.price || 0), 0);
-const onlinePayment = subtotal;
+const paymentMethod = getSelectedPaymentMethod();
+const totalDue = paymentMethod === 'cash_on_delivery' ? subtotal + Number(quote?.deliveryFee || 0) : subtotal;
 
 if (distanceEl) {
 distanceEl.textContent = quote?.requiresLocation ? 'Pin your location' : `${Number(quote.distanceKm || 0).toFixed(2)} km`;
 }
 if (feeEl) feeEl.textContent = `GHS ${formatMoney(quote?.deliveryFee)}`;
-if (totalEl) totalEl.textContent = `GHS ${formatMoney(onlinePayment)}`;
+if (totalEl) totalEl.textContent = `GHS ${formatMoney(totalDue)}`;
 if (noteEl) {
 noteEl.textContent = quote?.requiresLocation
   ? 'Pin your location to estimate rider delivery fee (paid on delivery).'
@@ -957,8 +958,8 @@ try {
 
 // ===================== STATE =====================
 let allProducts    = [];
-let allPromotions  = [];
 let adminPromotions = [];
+let allPromotions = [];
 let cart           = [];
 let riderToken     = localStorage.getItem('gs_rider_token') || null;
 let riderInfo      = JSON.parse(localStorage.getItem('gs_rider_info') || 'null');
@@ -1534,7 +1535,6 @@ document.getElementById('riderRegisterForm').style.display = formId === 'riderRe
 async function fetchProducts() {
 try {
     allProducts = await fetchProductsFromBase(API_URL);
-  // Render products before optional promotion data can delay the catalog.
   applyProductView();
 
     try {
@@ -2029,6 +2029,25 @@ renderDeliveryQuote({ requiresLocation: true });
 refreshDeliveryQuote();
 }
 
+function getSelectedPaymentMethod() {
+const selected = document.querySelector('input[name="paymentMethod"]:checked');
+return selected?.value === 'cash_on_delivery' ? 'cash_on_delivery' : 'paystack';
+}
+
+function updatePaymentMethodUI() {
+const method = getSelectedPaymentMethod();
+const button = document.getElementById('checkoutSubmitBtn');
+const totalLabel = document.querySelector('.delivery-quote-line.total span');
+if (button) button.textContent = method === 'cash_on_delivery' ? 'Place Cash-on-Delivery Order' : 'Pay with Paystack';
+if (totalLabel) totalLabel.textContent = method === 'cash_on_delivery' ? 'Pay on delivery' : 'Pay online now';
+const subtotal = cart.reduce((sum, item) => sum + Number(item.price || 0), 0);
+const deliveryFee = Number(currentDeliveryQuote?.deliveryFee || 0);
+const total = method === 'cash_on_delivery' ? subtotal + deliveryFee : subtotal;
+const modalTotal = document.getElementById('modalTotal');
+if (modalTotal) modalTotal.textContent = total.toFixed(2);
+renderDeliveryQuote(currentDeliveryQuote || { requiresLocation: true });
+}
+
 function useShopPickup() {
 selectedLocation = { ...SHOP_PICKUP_LOCATION };
 document.getElementById('custAddress').value = selectedLocation.address;
@@ -2197,6 +2216,7 @@ return;
 const quoteSnapshot = { ...currentDeliveryQuote };
 const deliveryFee = Number(quoteSnapshot.deliveryFee || 0);
 const cartSnapshot = [...cart];
+const paymentMethod = getSelectedPaymentMethod();
 
 try {
 const validation = await validateStockWithFallback(cartSnapshot);
@@ -2209,6 +2229,23 @@ if (!validation.ok) {
 } catch (err) {
 document.getElementById('checkoutError').textContent = 'Could not confirm stock right now. Please try again.';
 showToast('Could not confirm stock right now. Please try again.', 'error');
+return;
+}
+
+if (paymentMethod === 'cash_on_delivery') {
+try {
+  const res = await fetch(`${API_URL}/orders/cash-on-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cart: cartSnapshot, customer })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.order) throw new Error(data.message || 'Could not place cash-on-delivery order');
+  closeCheckout();
+  completeOrder(data.order, 'Order placed! Pay the rider on delivery. Ref: ');
+} catch (err) {
+  document.getElementById('checkoutError').textContent = err.message || 'Could not place order right now.';
+}
 return;
 }
 
@@ -2240,27 +2277,31 @@ body:    JSON.stringify({ reference, cart: cartSnapshot, customer, deliveryQuote
 });
 const data = await res.json();
 if (res.ok && data.order) {
-cart = [];
-selectedLocation = null;
-currentDeliveryQuote = null;
-if (checkoutMap) { checkoutMap.remove(); checkoutMap = null; }
-checkoutMarker = null;
-updateCartUI();
-const ref = data.order.reference;
-localStorage.setItem(`gs_chat_token_${ref}`, data.order.chatToken || '');
-showToast('Order placed! Track it with ref: ' + ref, 'success');
-// Pre-fill tracking input and prompt user
-setTimeout(() => {
-document.getElementById('trackRef').value = ref;
-showSection('track');
-trackOrder();
-}, 3000);
+completeOrder(data.order, 'Order placed! Track it with ref: ');
 } else {
 showToast(data.message || 'Payment verification failed', 'error');
 }
 } catch (err) {
 console.error(err);
 showToast('Network error during verification', 'error');
+}
+
+function completeOrder(order, messagePrefix) {
+cart = [];
+selectedLocation = null;
+currentDeliveryQuote = null;
+if (checkoutMap) { checkoutMap.remove(); checkoutMap = null; }
+checkoutMarker = null;
+updateCartUI();
+const ref = order.reference;
+localStorage.setItem(`gs_chat_token_${ref}`, order.chatToken || '');
+showToast(messagePrefix + order.reference, 'success');
+// Pre-fill tracking input and prompt user
+setTimeout(() => {
+document.getElementById('trackRef').value = order.reference;
+showSection('track');
+trackOrder();
+}, 3000);
 }
 }
 
@@ -2322,7 +2363,12 @@ const date  = new Date(data.date).toLocaleDateString('en-GH', { day:'numeric', m
 const subtotalAmount = Number(data.subtotal || 0);
 const deliveryAmount = Number(data.deliveryFee || 0);
 const grandTotal = subtotalAmount + deliveryAmount;
-document.getElementById('trackInfoGrid').innerHTML = `<div class="track-info-item"><span>Customer</span><strong>${escHtml(data.customerName || 'You')}</strong></div> <div class="track-info-item"><span>Subtotal</span><strong>GHS ${subtotalAmount.toFixed(2)}</strong></div> <div class="track-info-item"><span>Paid Online</span><strong>GHS ${Number(data.amount || 0).toFixed(2)}</strong></div> <div class="track-info-item"><span>Pay Rider on Delivery</span><strong>GHS ${deliveryAmount.toFixed(2)}</strong></div> <div class="track-info-item"><span>Grand Total</span><strong>GHS ${grandTotal.toFixed(2)}</strong></div> <div class="track-info-item"><span>Distance</span><strong>${Number(data.deliveryDistanceKm || 0).toFixed(2)} km</strong></div> <div class="track-info-item"><span>Rider</span><strong>${escHtml(data.riderName || 'Not yet assigned')}</strong></div> <div class="track-info-item"><span>Ordered</span><strong>${date}</strong></div> <div class="track-info-item"><span>Chat</span><strong>${data.riderName ? 'Live with rider' : 'Support thread open'}</strong></div>`;
+const isCashOnDelivery = data.paymentMethod === 'cash_on_delivery';
+const paymentLabel = isCashOnDelivery ? 'Due on Delivery' : 'Paid Online';
+const paymentAmount = isCashOnDelivery ? grandTotal : Number(data.amount || 0);
+const deliveryLabel = isCashOnDelivery ? 'Delivery fee included above' : 'Pay Rider on Delivery';
+const deliveryAmountMarkup = isCashOnDelivery ? '' : `<div class="track-info-item"><span>${deliveryLabel}</span><strong>GHS ${deliveryAmount.toFixed(2)}</strong></div>`;
+document.getElementById('trackInfoGrid').innerHTML = `<div class="track-info-item"><span>Customer</span><strong>${escHtml(data.customerName || 'You')}</strong></div> <div class="track-info-item"><span>Subtotal</span><strong>GHS ${subtotalAmount.toFixed(2)}</strong></div> <div class="track-info-item"><span>${paymentLabel}</span><strong>GHS ${paymentAmount.toFixed(2)}</strong></div> ${deliveryAmountMarkup} <div class="track-info-item"><span>Grand Total</span><strong>GHS ${grandTotal.toFixed(2)}</strong></div> <div class="track-info-item"><span>Distance</span><strong>${Number(data.deliveryDistanceKm || 0).toFixed(2)} km</strong></div> <div class="track-info-item"><span>Rider</span><strong>${escHtml(data.riderName || 'Not yet assigned')}</strong></div> <div class="track-info-item"><span>Ordered</span><strong>${date}</strong></div> <div class="track-info-item"><span>Chat</span><strong>${data.riderName ? 'Live with rider' : 'Support thread open'}</strong></div>`;
 
 const chatActions = document.getElementById('trackChatActions');
 if (chatActions) chatActions.style.display = 'block';
@@ -2798,13 +2844,16 @@ if (o?.reference) {
 syncChatUnreadFromTotal(o.reference, o.chatMessageCount || 0, o.lastChatMessageRole || null, 'rider');
 }
 const unreadCount = getChatUnreadCount(o.reference || '');
+const paymentNote = o.paymentMethod === 'cash_on_delivery'
+? `<div style="font-size:11px;color:var(--accent);margin-top:4px">Collect GHS ${(Number(o.amount || 0) + Number(o.deliveryFee || 0)).toFixed(2)} on delivery</div>`
+: '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Paid online</div>';
 const chatBtn = !showActions
 ? `<button class="chat-btn" data-chat-reference="${escHtml(o.reference || '')}" data-chat-base-label="Chat" onclick="openRiderChat('${o.reference || ''}', '${escHtml(o.customer?.name || 'Customer')}')">${formatChatButtonLabel('Chat', unreadCount)}</button>`
 : '';
 
 const actionBtns = showActions ? `<button class="accept-btn" onclick="acceptOrder('${o._id}')">Accept</button> <button class="reject-btn" onclick="dismissOrder('${o._id}')">Dismiss</button> ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">Map</button>`: ''}` : `<span class="status-badge ${statusClass}">${o.status}</span> ${o.status === 'assigned' ?`<button class="delivered-btn" onclick="markDelivered('${o._id}')">Mark Delivered</button>`: ''} ${chatBtn} ${o.customer?.location ?`<button class="view-map-btn" onclick="viewOrderMap('${o._id}', ${o.customer.location.lat}, ${o.customer.location.lng}, '${escHtml(o.customer.location.address || '')}')">Map</button>`: ''}`;
 
-return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">${escHtml(o.customer?.phone || '')}</div> ${locHtml} ${coordsDisplay} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> </div> <div class="rider-order-amount">GHS ${Number(o.amount).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
+return ` <div class="rider-order-card" id="ro-${o._id}"> <div class="rider-order-card-top"> <div> <div class="order-ref">Ref: ${escHtml(o.reference || '—')}</div> <div class="order-customer">${escHtml(o.customer?.name || 'Unknown')}</div> <div class="order-contact">${escHtml(o.customer?.phone || '')}</div> ${locHtml} ${coordsDisplay} <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div> ${paymentNote}</div> <div class="rider-order-amount">GHS ${Number(o.amount || 0).toFixed(2)}</div> </div> <ul class="rider-order-items">${itemsHtml}</ul> <div class="rider-order-footer">${actionBtns}</div> </div>`;
 }
 
 async function acceptOrder(orderId) {

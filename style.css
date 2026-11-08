@@ -932,6 +932,17 @@ body.chat-modal-open {
 .modal-header h3 { font-family: var(--font-display); font-size: 24px; letter-spacing: 1px; }
 .modal-total { font-size: 15px; color: var(--text-muted); margin-bottom: 16px; }
 .modal-total strong { color: var(--text); font-size: 20px; }
+.payment-method-group { margin: 4px 0 16px; }
+.payment-method-label { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
+.payment-method-option {
+  display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+  margin-top: 8px; border: 1px solid var(--border); border-radius: 9px;
+  cursor: pointer; font-size: 13px;
+}
+.payment-method-option:has(input:checked) { border-color: var(--accent); background: rgba(181,241,59,0.07); }
+.payment-method-option input { margin-top: 3px; accent-color: var(--accent); }
+.payment-method-option span { display: grid; gap: 3px; }
+.payment-method-option small { color: var(--text-muted); font-size: 11px; }
 
 .delivery-quote-card {
   background: linear-gradient(180deg, rgba(181,241,59,0.08), rgba(255,255,255,0));
