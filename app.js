@@ -2258,7 +2258,7 @@ try {
   const data = await res.json();
   if (!res.ok || !data.order) throw new Error(data.message || 'Could not place cash-on-delivery order');
   closeCheckout();
-  await completeOrder(data.order, 'Order placed! Pay the rider on delivery. Ref: ', data.emailSent);
+  await completeOrder(data.order, 'Order placed! Pay the rider on delivery. Ref: ', data.emailSent, data.emailQueued);
 } catch (err) {
   document.getElementById('checkoutError').textContent = err.message || 'Could not place order right now.';
   showToast(err.message || 'Could not place order right now.', 'error');
@@ -2297,7 +2297,7 @@ body:    JSON.stringify({ reference, cart: cartSnapshot, customer, deliveryQuote
 });
 const data = await res.json();
 if (res.ok && data.order) {
-await completeOrder(data.order, 'Order placed! Track it with ref: ', data.emailSent);
+await completeOrder(data.order, 'Order placed! Track it with ref: ', data.emailSent, data.emailQueued);
 } else {
 const message = data.message || 'Payment verification failed';
 showToast(message, 'error');
@@ -2328,7 +2328,7 @@ if (reference) reference.textContent = 'No order reference created';
 if (payment) payment.textContent = 'Your cart is still available so you can try again.';
 }
 
-async function completeOrder(order, messagePrefix, emailSent) {
+async function completeOrder(order, messagePrefix, emailSent, emailQueued = false) {
 cart = [];
 selectedLocation = null;
 currentDeliveryQuote = null;
@@ -2357,6 +2357,8 @@ if (confirmationMessage && emailSent === true) {
   confirmationMessage.textContent += ' A confirmation email with your reference has been sent.';
 } else if (confirmationMessage && emailSent === false) {
   confirmationMessage.textContent += ' We could not send the confirmation email, so please save this reference.';
+} else if (confirmationMessage && emailQueued) {
+  confirmationMessage.textContent += ' A confirmation email is being sent to your checkout email address.';
 }
 if (confirmationOverlay) confirmationOverlay.classList.add('open');
 showToast(messagePrefix + ref, 'success');
