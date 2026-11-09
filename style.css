@@ -523,6 +523,13 @@ nav { display: flex; align-items: center; gap: 8px; }
   white-space: nowrap;
 }
 .add-to-cart-btn:hover { background: var(--accent-dk); }
+.add-to-cart-btn.out-of-stock-btn {
+  background: #6b7280;
+  color: #fff;
+}
+.add-to-cart-btn.out-of-stock-btn:hover {
+  background: #4b5563;
+}
 .out-of-stock-badge {
   position: absolute;
   top: 10px; right: 10px;

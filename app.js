@@ -1672,7 +1672,8 @@ const imgHtml = p.image
 : '';
 const placeholderStyle = p.image ? 'style="display:none"' : '';
 const stockBadge   = (p.stock !== undefined && p.stock === 0) ? `<span class="out-of-stock-badge">Out of Stock</span>` : '';
-const disabledAttr = (p.stock !== undefined && p.stock === 0) ? 'disabled title="Out of stock"' : '';
+const outOfStock = p.stock !== undefined && Number(p.stock) <= 0;
+const disabledAttr = outOfStock ? 'aria-disabled="true" title="Out of stock"' : '';
 const hasSizes     = p.sizeType && p.sizeType !== 'none' && p.sizes && p.sizes.length > 0;
 const sizeDots     = hasSizes ? p.sizes.slice(0,5).map(function(s){ return '<span class="size-dot">' + escHtml(s) + '</span>'; }).join('') : '';
 const sizeMore     = hasSizes && p.sizes.length > 5 ? '<span class="size-dot">+' + (p.sizes.length - 5) + '</span>' : '';
@@ -1693,8 +1694,8 @@ return `
     </div>
     <div class="product-footer">
       <div class="product-price"><span>GHS</span> ${Number(p.price).toFixed(2)}</div>
-      <button class="add-to-cart-btn" data-product-id="${p._id}" ${disabledAttr}>
-        ${hasSizes ? 'Select Size' : '+ Cart'}
+      <button class="add-to-cart-btn${outOfStock ? ' out-of-stock-btn' : ''}" data-product-id="${p._id}" ${disabledAttr}>
+        ${outOfStock ? 'Out of Stock' : (hasSizes ? 'Select Size' : '+ Cart')}
       </button>
     </div>
   </div>`;
@@ -1741,6 +1742,10 @@ applyProductView();
 function handleAddToCartClick(productId) {
 const product = allProducts.find(p => p._id === productId);
 if (!product) return;
+if (product.stock !== undefined && Number(product.stock) <= 0) {
+showToast(`${product.name} is currently out of stock.`, 'error');
+return;
+}
 
 const hasSizes = product.sizeType && product.sizeType !== 'none' && product.sizes && product.sizes.length > 0;
 
