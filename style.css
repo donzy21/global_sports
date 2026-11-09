@@ -1394,6 +1394,36 @@ body.chat-modal-open {
 .toast.success { border-color: var(--accent); color: var(--accent); }
 .toast.error   { border-color: var(--red); color: var(--red); }
 
+.order-confirmation-modal { text-align: center; }
+.order-confirmation-icon {
+  width: 58px; height: 58px; margin: 0 auto 14px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--accent); color: var(--bg);
+  font-size: 32px; font-weight: 700;
+}
+.order-failed .order-confirmation-icon {
+  background: var(--red);
+  color: #fff;
+}
+.order-failed .order-confirmation-reference strong {
+  color: var(--red);
+}
+.order-confirmation-modal h3 {
+  font-family: var(--font-display); font-size: 28px; letter-spacing: 1px;
+}
+.order-confirmation-modal > p { color: var(--text-muted); font-size: 14px; margin-top: 8px; line-height: 1.5; }
+.order-confirmation-reference {
+  margin: 20px 0 10px; padding: 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface2);
+}
+.order-confirmation-reference span,
+.order-confirmation-reference strong { display: block; }
+.order-confirmation-reference span { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.order-confirmation-reference strong { color: var(--accent); font-size: 18px; margin-top: 5px; word-break: break-word; }
+.order-confirmation-payment { color: var(--text) !important; }
+.order-confirmation-actions { display: grid; gap: 9px; margin-top: 20px; }
+
 /* ===================== FOOTER ===================== */
 .site-footer {
   border-top: 1px solid var(--border);

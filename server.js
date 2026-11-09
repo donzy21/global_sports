@@ -9,6 +9,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -156,6 +157,13 @@ const TWILIO_ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM;
 const ADMIN_WHATSAPP_TO    = process.env.ADMIN_WHATSAPP_TO;
+const SMTP_HOST             = process.env.SMTP_HOST;
+const SMTP_PORT             = Number(process.env.SMTP_PORT || 587);
+const SMTP_SECURE           = /^(1|true|yes)$/i.test(String(process.env.SMTP_SECURE || '').trim());
+const SMTP_USER             = String(process.env.SMTP_USER || '').trim();
+const SMTP_PASS             = String(process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '').replace(/\s+/g, '');
+const EMAIL_FROM            = String(process.env.EMAIL_FROM || SMTP_USER).trim();
+const STORE_URL              = String(process.env.STORE_URL || 'https://globalsports-mall.me').trim().replace(/\/+$/, '');
 const CHAT_RETENTION_DAYS = Math.max(1, Number(process.env.CHAT_RETENTION_DAYS || 90));
 const CHAT_RETENTION_SECONDS = CHAT_RETENTION_DAYS * 24 * 60 * 60;
 const CHAT_RETENTION_SWEEP_MS = Math.max(60 * 60 * 1000, Number(process.env.CHAT_RETENTION_SWEEP_MS || (6 * 60 * 60 * 1000)));
@@ -1021,12 +1029,74 @@ async function authorizeChatAccess(reference, access = {}) {
   return { ok: false, status: 400, message: 'Unsupported chat role' };
 }
 
+function getEmailTransporter() {
+    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !EMAIL_FROM) return null;
+    return nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: { user: SMTP_USER, pass: SMTP_PASS }
+    });
+}
+
+async function sendCustomerOrderEmail(order) {
+  const transporter = getEmailTransporter();
+  const recipient = String(order?.customer?.email || '').trim();
+  if (!transporter || !recipient) {
+    console.warn('Customer order email skipped: SMTP settings or customer email is missing');
+    return false;
+  }
+    const isCashOnDelivery = order.paymentMethod === 'cash_on_delivery';
+    const grandTotal = Number(order.amount || 0) + (isCashOnDelivery ? Number(order.deliveryFee || 0) : 0);
+    const paymentSummary = isCashOnDelivery
+      ? `Payment method: Cash on delivery<br><strong>Amount due on delivery: GHS ${grandTotal.toFixed(2)}</strong>`
+      : `Payment method: Paystack<br><strong>Paid online: GHS ${Number(order.amount || 0).toFixed(2)}</strong>`;
+    const itemRows = (order.items || []).map((item) =>
+      `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb">${String(item.name || 'Product')}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right">GHS ${Number(item.price || 0).toFixed(2)}</td></tr>`
+    ).join('');
+    const trackUrl = `${STORE_URL}/?track=${encodeURIComponent(order.reference)}`;
+
+    try {
+      await transporter.sendMail({
+        from: EMAIL_FROM,
+        to: recipient,
+        subject: `Order confirmed - ${order.reference}`,
+        text: [
+          `Hello ${order.customer.name || 'Customer'},`,
+          '',
+          'Your Global Sports order has been confirmed.',
+          `Order reference: ${order.reference}`,
+          isCashOnDelivery
+            ? `Payment: Cash on delivery. Amount due: GHS ${grandTotal.toFixed(2)}`
+            : `Payment: Paystack. Paid online: GHS ${Number(order.amount || 0).toFixed(2)}`,
+          `Track your order: ${trackUrl}`,
+          '',
+          'Thank you for shopping with Global Sports.'
+        ].join('\n'),
+        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1f2937">
+          <h2 style="color:#111827">Order confirmed</h2>
+          <p>Hello ${String(order.customer.name || 'Customer')}, your Global Sports order has been confirmed.</p>
+          <div style="padding:16px;background:#f3f4f6;border-radius:8px"><strong>Order reference</strong><br><span style="font-size:20px">${order.reference}</span><p>${paymentSummary}</p></div>
+          <h3>Order items</h3><table style="width:100%;border-collapse:collapse">${itemRows}</table>
+          <p style="margin-top:20px"><a href="${trackUrl}" style="display:inline-block;padding:12px 18px;background:#b5f13b;color:#101317;text-decoration:none;border-radius:6px;font-weight:bold">Track my order</a></p>
+          <p>Need help? Call +233 53 625 6520 or reply to this email.</p>
+        </div>`
+      });
+      console.log(`Customer order email sent to ${recipient}`);
+      return true;
+    } catch (err) {
+      console.error('Customer order email failed:', err.message);
+      return false;
+    }
+}
+
 // ================= WHATSAPP NOTIFICATIONS =================
 async function sendWhatsAppNotification(order) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM || !ADMIN_WHATSAPP_TO) {
     console.log('WhatsApp env vars not set - skipping notification');
     return;
   }
+
   const itemList = order.items.map(i => `• ${i.name} — GHS ${i.price}`).join('\n');
   const message =
   `*New Order | Global Sports*\n\n` +
@@ -1340,6 +1410,7 @@ app.post('/api/orders/verify', async (req, res) => {
       }
 
       await sendWhatsAppNotification(order);
+      const emailSent = await sendCustomerOrderEmail(order);
       notifyRiders('new_order', {
         orderId:  order._id,
         reference: order.reference,
@@ -1355,7 +1426,7 @@ app.post('/api/orders/verify', async (req, res) => {
         },
         date: order.date
       });
-      return res.json({ message: 'Payment verified & order saved', order, deliveryQuote });
+      return res.json({ message: 'Payment verified & order saved', order, deliveryQuote, emailSent });
     } else {
       return res.json({ message: 'Payment failed or incomplete' });
     }
@@ -1412,6 +1483,7 @@ app.post('/api/orders/cash-on-delivery', async (req, res) => {
     }
 
     await sendWhatsAppNotification(order);
+    const emailSent = await sendCustomerOrderEmail(order);
     notifyRiders('new_order', {
       orderId: order._id,
       reference: order.reference,
@@ -1428,7 +1500,7 @@ app.post('/api/orders/cash-on-delivery', async (req, res) => {
       },
       date: order.date
     });
-    return res.status(201).json({ message: 'Cash-on-delivery order saved', order, deliveryQuote });
+    return res.status(201).json({ message: 'Cash-on-delivery order saved', order, deliveryQuote, emailSent });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_STOCK') {
       return res.status(409).json({

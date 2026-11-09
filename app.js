@@ -977,6 +977,7 @@ let currentSortMode    = 'featured';
 let currentDeliveryQuote = null;
 let cartStockValidationTimer = null;
 let cartStockValidationSeq = 0;
+let orderSubmissionInProgress = false;
 let chatSocket = null;
 let activeChat = null;
 let chatModalOpen = false;
@@ -1053,6 +1054,16 @@ async function syncCartToServer() {
   } catch (err) {
     console.warn('Cart sync failed:', err.message || err);
   }
+}
+
+function setOrderSubmissionState(inProgress) {
+  orderSubmissionInProgress = inProgress;
+  const button = document.getElementById('checkoutSubmitBtn');
+  if (!button) return;
+  button.disabled = inProgress;
+  button.textContent = inProgress
+    ? 'Processing order...'
+    : (getSelectedPaymentMethod() === 'cash_on_delivery' ? 'Place Cash-on-Delivery Order' : 'Pay with Paystack');
 }
 
 async function loadCartFromServer() {
@@ -2172,6 +2183,10 @@ placeMapMarker(lat, lng);
 
 // ===================== PAYMENT =====================
 async function processPayment() {
+if (orderSubmissionInProgress) {
+showToast('Your order is already being processed. Please wait.', 'error');
+return;
+}
 const name    = document.getElementById('custName').value.trim();
 const email   = document.getElementById('custEmail').value.trim();
 const phone   = document.getElementById('custPhone').value.trim();
@@ -2233,6 +2248,7 @@ return;
 }
 
 if (paymentMethod === 'cash_on_delivery') {
+setOrderSubmissionState(true);
 try {
   const res = await fetch(`${API_URL}/orders/cash-on-delivery`, {
     method: 'POST',
@@ -2242,13 +2258,16 @@ try {
   const data = await res.json();
   if (!res.ok || !data.order) throw new Error(data.message || 'Could not place cash-on-delivery order');
   closeCheckout();
-  completeOrder(data.order, 'Order placed! Pay the rider on delivery. Ref: ');
+  await completeOrder(data.order, 'Order placed! Pay the rider on delivery. Ref: ', data.emailSent);
 } catch (err) {
   document.getElementById('checkoutError').textContent = err.message || 'Could not place order right now.';
+  showToast(err.message || 'Could not place order right now.', 'error');
+  setOrderSubmissionState(false);
 }
 return;
 }
 
+setOrderSubmissionState(true);
 const handler = PaystackPop.setup({
 key:      PAYSTACK_PUBLIC_KEY,
 email:    customer.email,
@@ -2260,6 +2279,7 @@ closeCheckout();
 verifyPayment(res.reference, customer, cartSnapshot, quoteSnapshot);
 },
 onClose: function() {
+setOrderSubmissionState(false);
 showToast('Payment cancelled', 'error');
 }
 });
@@ -2277,32 +2297,87 @@ body:    JSON.stringify({ reference, cart: cartSnapshot, customer, deliveryQuote
 });
 const data = await res.json();
 if (res.ok && data.order) {
-completeOrder(data.order, 'Order placed! Track it with ref: ');
+await completeOrder(data.order, 'Order placed! Track it with ref: ', data.emailSent);
 } else {
-showToast(data.message || 'Payment verification failed', 'error');
+const message = data.message || 'Payment verification failed';
+showToast(message, 'error');
+showOrderFailure(message);
+setOrderSubmissionState(false);
 }
 } catch (err) {
 console.error(err);
 showToast('Network error during verification', 'error');
+showOrderFailure('We could not confirm the payment. No new order was created. Please try again or contact support if money was deducted.');
+setOrderSubmissionState(false);
+}
 }
 
-function completeOrder(order, messagePrefix) {
+function showOrderFailure(message) {
+const overlay = document.getElementById('orderConfirmationOverlay');
+const title = document.getElementById('orderConfirmationTitle');
+const icon = overlay?.querySelector('.order-confirmation-icon');
+const body = document.getElementById('orderConfirmationMessage');
+const reference = document.getElementById('orderConfirmationReference');
+const payment = document.getElementById('orderConfirmationPayment');
+if (!overlay) return;
+overlay.classList.add('open', 'order-failed');
+if (icon) icon.textContent = '!';
+if (title) title.textContent = 'Order was not completed';
+if (body) body.textContent = message;
+if (reference) reference.textContent = 'No order reference created';
+if (payment) payment.textContent = 'Your cart is still available so you can try again.';
+}
+
+async function completeOrder(order, messagePrefix, emailSent) {
 cart = [];
 selectedLocation = null;
 currentDeliveryQuote = null;
 if (checkoutMap) { checkoutMap.remove(); checkoutMap = null; }
 checkoutMarker = null;
 updateCartUI();
+await syncCartToServer();
+setOrderSubmissionState(false);
 const ref = order.reference;
 localStorage.setItem(`gs_chat_token_${ref}`, order.chatToken || '');
-showToast(messagePrefix + order.reference, 'success');
-// Pre-fill tracking input and prompt user
-setTimeout(() => {
-document.getElementById('trackRef').value = order.reference;
+const confirmationOverlay = document.getElementById('orderConfirmationOverlay');
+const confirmationReference = document.getElementById('orderConfirmationReference');
+const confirmationMessage = document.getElementById('orderConfirmationMessage');
+const confirmationPayment = document.getElementById('orderConfirmationPayment');
+if (confirmationReference) confirmationReference.textContent = ref;
+if (confirmationOverlay) confirmationOverlay.classList.remove('order-failed');
+const confirmationIcon = confirmationOverlay?.querySelector('.order-confirmation-icon');
+if (confirmationIcon) confirmationIcon.textContent = '✓';
+if (confirmationMessage) confirmationMessage.textContent = messagePrefix.includes('Pay the rider')
+  ? 'Your order is confirmed. Please pay the rider when it arrives.'
+  : 'Your payment was verified and your order is now being prepared.';
+if (confirmationPayment) confirmationPayment.textContent = messagePrefix.includes('Pay the rider')
+  ? `Amount due on delivery: GHS ${(Number(order.amount || 0) + Number(order.deliveryFee || 0)).toFixed(2)}`
+  : `Paid online: GHS ${Number(order.amount || 0).toFixed(2)}`;
+if (confirmationMessage && emailSent === true) {
+  confirmationMessage.textContent += ' A confirmation email with your reference has been sent.';
+} else if (confirmationMessage && emailSent === false) {
+  confirmationMessage.textContent += ' We could not send the confirmation email, so please save this reference.';
+}
+if (confirmationOverlay) confirmationOverlay.classList.add('open');
+showToast(messagePrefix + ref, 'success');
+window.setTimeout(() => {
+  const trackRef = document.getElementById('trackRef');
+  if (trackRef) trackRef.value = ref;
+}, 0);
+}
+
+function closeOrderConfirmation() {
+const overlay = document.getElementById('orderConfirmationOverlay');
+if (overlay) overlay.classList.remove('open', 'order-failed');
+}
+
+function trackConfirmedOrder() {
+const ref = document.getElementById('orderConfirmationReference')?.textContent.trim();
+if (!ref) return;
+closeOrderConfirmation();
+document.getElementById('trackRef').value = ref;
 showSection('track');
 trackOrder();
-}, 3000);
-}
 }
 
 // ===================== ORDER TRACKING (CUSTOMER) =====================

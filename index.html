@@ -144,11 +144,7 @@
     <p class="hero-sub">Premium sports apparel delivered across Ghana</p>
   </div>
 
-  <div class="trust-strip" aria-label="Shopping benefits">
-    <div><strong>Authentic sportswear</strong><span>Quality products selected for active lifestyles</span></div>
-    <div><strong>Delivery across Ghana</strong><span>Track your order from dispatch to arrival</span></div>
-    <div><strong>Flexible payment</strong><span>Pay securely online or after delivery</span></div>
-  </div>
+
 
   <div class="discover-toolbar">
     <div class="filter-bar">
@@ -570,6 +566,25 @@
 <!-- ======== TOAST ======== -->
 
 <div class="toast" id="toast"></div>
+
+<!-- ======== ORDER CONFIRMATION ======== -->
+
+<div class="modal-overlay" id="orderConfirmationOverlay">
+  <div class="modal order-confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="orderConfirmationTitle">
+    <div class="order-confirmation-icon" aria-hidden="true">✓</div>
+    <h3 id="orderConfirmationTitle">Order placed successfully</h3>
+    <p id="orderConfirmationMessage">Thank you for shopping with Global Sports. Your order reference will also be sent to your checkout email.</p>
+    <div class="order-confirmation-reference">
+      <span>Order reference</span>
+      <strong id="orderConfirmationReference"></strong>
+    </div>
+    <p class="order-confirmation-payment" id="orderConfirmationPayment"></p>
+    <div class="order-confirmation-actions">
+      <button class="submit-btn" type="button" onclick="trackConfirmedOrder()">Track my order</button>
+      <button class="cancel-btn" type="button" onclick="closeOrderConfirmation()">Continue shopping</button>
+    </div>
+  </div>
+</div>
 
 <section class="faq-section" aria-labelledby="faqTitle">
   <div class="faq-heading">
